@@ -4,10 +4,10 @@
 void Eth_NTRIP_Code(void* pvParameters) {
     Serial.println("started new task on core 0: Ethernet NTRIP");
     for (;;) { // MAIN LOOP FOR THIS CORE
-        if (Ethernet_running) {
+        if (Eth_connect_step == 0) {
             if (Set.NtripClientBy == 1) {
                 task_Eth_NTRIP_running = true;
-                if (doEthUDPNtrip() < 255) { vTaskDelay(2); }//10
+                if (doEthUDPNtrip() < 255) { vTaskDelay(10); }//2
             }
             else {
                 task_Eth_NTRIP_running = false;
@@ -44,11 +44,11 @@ void NTRIP_Client_Code(void* pvParameters) {
     unsigned long WiFi_Ntrip_lost_time = 0;// now;
 
     for (;;) { // MAIN LOOP FOR THIS CORE
-        if (Set.NtripClientBy == 2) {
+        if ((Set.NtripClientBy == 2) && (WiFi_connect_step < 3)) {
             task_NTRIP_Client_running = true;
             if ((WiFi.status() == WL_CONNECTED) && (Ntrip_restart < 10)) { do_WiFi_NTRIP(); }
             else {
-                if (my_WiFi_Mode == 0){
+                if (my_WiFi_Mode == 0) {
                     task_NTRIP_Client_running = false;
                     delay(1);
                     vTaskDelete(NULL);
@@ -69,8 +69,8 @@ void NTRIP_Client_Code(void* pvParameters) {
             vTaskDelete(NULL);
         }
         delay(1);
-     } 
-} 
+    }
+}
 
 
 //-------------------------------------------------------------------------------------------------

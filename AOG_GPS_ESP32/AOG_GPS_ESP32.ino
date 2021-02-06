@@ -41,7 +41,7 @@ struct set {
     //  RX2-25-----------------------------TX1----------UBX-RelPosNED out (=position relative to other Antenna)
     //  TX2-17-----------------------------RX1----------
     //               TX2-------------------RX2----------RTCM 1077+1087+1097+1127+1230+4072.0+4072.1 (activate in right F9P = NTRIP for relative positioning)
-  
+
     // IO pins ESP32 side ----------------------------------------------------------------------------
     byte RX1 = 27;                    //right F9P TX1 GPS pos
     byte TX1 = 16;                    //right F9P RX1 GPS pos
@@ -56,10 +56,10 @@ struct set {
     byte LEDWiFi_PIN = 2;      // WiFi Status LED 0 = off
     byte LEDWiFi_ON_Level = HIGH;    //HIGH = LED on high, LOW = LED on low
 
-    //WiFi---------------------------------------------------------------------------------------------
+    //Network---------------------------------------------------------------------------------------------
 #if HardwarePlatform == 0
     //tractors WiFi or mobile hotspots
-    char ssid1[24] =  "Fendt_209V";           // WiFi network Client name
+    char ssid1[24] = "Fendt_209V";           // WiFi network Client name
     char password1[24] = "";                 // WiFi network password//Accesspoint name and password
     char ssid2[24] = "Matthias Cat S62 Pro";// WiFi network Client name
     char password2[24] = "";                 // WiFi network password//Accesspoint name and password
@@ -74,7 +74,7 @@ struct set {
     int timeoutRouter = 20;                //time (s) to search for existing WiFi, than starting Accesspoint 
 
     byte timeoutWebIO = 255;                 //time (min) afterwards webinterface is switched off
-     
+
     // Ntrip Caster Data
     char NtripHost[40] = "www.sapos-bw-ntrip.de";//  "80.154.101.74";    // Server IP or URL
     int  NtripPort = 2101;                // Server Port
@@ -89,15 +89,18 @@ struct set {
     byte NtripGGASendRate = 10;         // time in seconds between GGA Packets
 
 
-    //static IP
+    //WiFi
     byte WiFi_myip[4] = { 192, 168, 1, 79 };     // Roofcontrol module 
-    byte Eth_myip[4] = { 192, 168, 1, 80 };     // Roofcontrol module 
-    bool Eth_static_IP = true;					// false = use DHPC and set last number to 80 (x.x.x.80) / true = use IP as set above
     byte WiFi_gwip[4] = { 192, 168, 1, 1 };      // Gateway IP only used if Accesspoint created
+    byte WiFi_ipDest_ending = 255;//ending of IP address to send UDP data to
     byte mask[4] = { 255, 255, 255, 0 };
     byte myDNS[4] = { 8, 8, 8, 8 };         //optional
-    byte WiFi_ipDest_ending = 255;//ending of IP address to send UDP data to
+
+    //Ethernet
+    byte Eth_myip[4] = { 192, 168, 1, 80 };     // Roofcontrol module 
     byte Eth_ipDest_ending = 100;//ending of IP address to send UDP data to
+    byte mac[6] = { 0x90,0xA2,0xDA,0x10,0xB3,0x1B };
+    bool Eth_static_IP = false;					// false = use DHPC and set last number to 80 (x.x.x.80) / true = use IP as set above
 
     unsigned int PortGPSToAOG = 5544;             //this is port of this module: Autosteer = 5577 IMU = 5566 GPS = 
     unsigned int PortFromAOG = 8888;            //port to listen for AOG
@@ -115,12 +118,12 @@ struct set {
     double AntDistDeviationFactor = 1.2;  // factor (>1), of whom lenght vector from both GPS units can max differ from AntDist before stop heading calc
     byte checkUBXFlags = 1;               //UBX sending quality flags, when used with RTK sometimes 
     byte filterGPSposOnWeakSignal = 1;    //filter GPS Position on weak GPS signal
-   
+
     byte GPSPosCorrByRoll = 1;            // 0 = off, 1 = correction of position by roll (AntHight must be > 0)
-    double rollAngleCorrection = 0.0; 
+    double rollAngleCorrection = 0.0;
 
     byte MaxHeadChangPerSec = 30;         // degrees that heading is allowed to change per second
-   
+
     byte DataTransVia = 7;// 7;                //transfer data via 0 = USB / 7 = WiFi UDP / 8 = WiFi UDP 2x / 10 = Ethernet UDP
 
     byte NtripClientBy = 1;               //NTRIP client 0:off /1: listens for AOG NTRIP to UDP (WiFi/Ethernet) or USB serial /2: use ESP32 WiFi NTIRP client
@@ -201,10 +204,10 @@ double HeadingQuotaVTG = 0.5;
 IPAddress WiFi_ipDestination,Eth_ipDestination; //set in network.ino
 byte WiFi_netw_nr = 0 , my_WiFi_Mode = 0;   // WIFI_STA = 1 = Workstation  WIFI_AP = 2  = Accesspoint
 
-bool Ethernet_running = false, WiFi_STA_running = false, task_Eth_NTRIP_running = false;
+bool  WiFi_STA_running = false, task_Eth_NTRIP_running = false;
 // buffers for receiving and sending data
 char packetBuffer[512];//300
-
+byte Eth_connect_step;
 
 //NTRIP
 unsigned long lifesign, NTRIP_GGA_send_lastTime; 
@@ -351,10 +354,12 @@ WebServer WiFi_Server(80);
 //EthernetWebServer Eth_Server(80);
 WiFiClient WiFi_Ntrip_cl;
 
-byte mac[] = {0x90,0xA2,0xDA,0x10,0xB3,0x1B};
 
+TaskHandle_t taskHandle_WiFi_connect;
+TaskHandle_t taskHandle_WiFi_NTRIP;
+TaskHandle_t taskHandle_Eth_connect;
+TaskHandle_t taskHandle_Eth_NTRIP;
 
-TaskHandle_t Core1;
 #endif
 
 // SETUP ------------------------------------------------------------------------------------------
@@ -363,7 +368,7 @@ void setup()
 {
     delay(200);
     delay(50);
-	//start serials
+    //start serials
     Serial.begin(115200);
     delay(50);
 #if HardwarePlatform == 0
@@ -393,9 +398,14 @@ void setup()
     delay(60);
 
     //start Ethernet
-    if (Set.DataTransVia == 10) { Eth_Start(); } 
+    if (Set.DataTransVia == 10) {
+        Eth_connect_step = 10;
+        xTaskCreatePinnedToCore(Eth_handle_connection, "Core1EthConnectHandle", 3072, NULL, 1, &taskHandle_Eth_connect, 1);
+        delay(500);
+    }
+    else { Eth_connect_step = 255; }
         
-    //start connection process, call in loop everytime!
+    //start WiFi
     WiFi_connect_step = 10;
     WebIORunning = false;
     WiFi_UDP_running = false;
@@ -520,41 +530,43 @@ void loop()
         }
         else {
             //use Ethernet DataTransVia >= 10
-            if ((Set.NtripClientBy == 1) && (!task_Eth_NTRIP_running)) {
-                xTaskCreatePinnedToCore(Eth_NTRIP_Code, "Core1", 3072, NULL, 1, &Core1, 1);
-                delay(500);
-            } //gets Ethernet UDP NTRIP and sends to serial 1 
-            if ((newOGI) && (Set.sendOGI == 1)) {
-                Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                for (byte n = 0; n < OGIdigit; n++) {
-                    Eth_udpRoof.print(char(OGIBuffer[n]));
+            if (Eth_connect_step == 0) {
+                if ((Set.NtripClientBy == 1) && (!task_Eth_NTRIP_running)) {
+                    xTaskCreatePinnedToCore(Eth_NTRIP_Code, "Core1", 3072, NULL, 1, &taskHandle_Eth_NTRIP, 1);
+                    delay(500);
+                } //gets Ethernet UDP NTRIP and sends to serial 1 
+                if ((newOGI) && (Set.sendOGI == 1)) {
+                    Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
+                    for (byte n = 0; n < OGIdigit; n++) {
+                        Eth_udpRoof.print(char(OGIBuffer[n]));
+                    }
+                    Eth_udpRoof.endPacket();
+                    newOGI = false;
                 }
-                Eth_udpRoof.endPacket();
-                newOGI = false;
-            }
-            if (newGGA) {
-                Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                for (byte n = 0; n < GGAdigit; n++) {
-                    Eth_udpRoof.print(char(GGABuffer[n]));
+                if (newGGA) {
+                    Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
+                    for (byte n = 0; n < GGAdigit; n++) {
+                        Eth_udpRoof.print(char(GGABuffer[n]));
+                    }
+                    Eth_udpRoof.endPacket();
+                    newGGA = false;
                 }
-                Eth_udpRoof.endPacket();
-                newGGA = false;
-            }
-            if (newVTG) {
-                Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                for (byte n = 0; n < VTGdigit; n++) {
-                    Eth_udpRoof.print(char(VTGBuffer[n]));
+                if (newVTG) {
+                    Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
+                    for (byte n = 0; n < VTGdigit; n++) {
+                        Eth_udpRoof.print(char(VTGBuffer[n]));
+                    }
+                    Eth_udpRoof.endPacket();
+                    newVTG = false;
                 }
-                Eth_udpRoof.endPacket();
-                newVTG = false;
-            }
-            if (newHDT) {
-                Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                for (byte n = 0; n < HDTdigit; n++) {
-                    Eth_udpRoof.print(char(HDTBuffer[n]));
+                if (newHDT) {
+                    Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
+                    for (byte n = 0; n < HDTdigit; n++) {
+                        Eth_udpRoof.print(char(HDTBuffer[n]));
+                    }
+                    Eth_udpRoof.endPacket();
+                    newHDT = false;
                 }
-                Eth_udpRoof.endPacket();
-                newHDT = false;
             }
         }//else WiFi
     }//else USB
@@ -562,8 +574,9 @@ void loop()
     //WiFi rescann button pressed?
     if (!digitalRead(Set.Button_WiFi_rescan_PIN)) {
         WiFi_connect_timer = 0;
-        WiFi_connect_step = 2;
+        WiFi_connect_step = 3;
         my_WiFi_Mode = 0;//set 0 to end Ntrip task
+        WiFi_UDP_running = false;
     }
 
     //search for WiFi networks and connect
@@ -577,7 +590,7 @@ void loop()
             WebIORunning = false;
             WiFi_Server.close();
             delay(100);
-            if ((Set.DataTransVia == 0) || (Set.DataTransVia == 10)) { WiFi.mode(WIFI_OFF); }
+            if ((Set.DataTransVia == 0) || (Set.DataTransVia == 10)) { WiFi.mode(WIFI_OFF); WiFi_connect_step = 255; }
             if (Set.debugmode) { Serial.println("switching off Webinterface"); }
         }
     }

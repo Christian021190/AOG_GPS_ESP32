@@ -17,7 +17,7 @@ void WiFi_handle_connection() {
                     WiFi_connect_step = 0;
                     if ((Set.NtripClientBy == 2) && (!task_NTRIP_Client_running)) {
                         {
-                            xTaskCreatePinnedToCore(NTRIP_Client_Code, "Core1", 3072, NULL, 1, &Core1, 1);
+                            xTaskCreatePinnedToCore(NTRIP_Client_Code, "Core1", 3072, NULL, 1, &taskHandle_WiFi_NTRIP, 1);
                             delay(500);
                         }
                     }
@@ -30,14 +30,22 @@ void WiFi_handle_connection() {
                 break;
 
             case 3:
+                if (!task_NTRIP_Client_running) { WiFi_connect_step++; }
+                WiFi_connect_timer = now;
+                break;
+
+            case 4:
                 WiFi_netw_nr = 0;
-                WebIORunning = false;
+                if (WebIORunning) {
+                    WiFi_Server.close();
+                    WebIORunning = false;
+                }
                 WiFi_UDP_running = false;
                 WiFi_Ntrip_cl.stop();
                 WiFi_connect_step++;
                 WiFi_connect_timer = now;
                 break;
-            case 4:
+            case 5:
                 WiFi.mode(WIFI_OFF);
                 WiFi_connect_step = 10;
                 WiFi_connect_timer = now;
@@ -72,6 +80,7 @@ void WiFi_handle_connection() {
 
             case 12:
                 WiFi_STA_connect_network();
+                delay(1);
                 if (WiFi_network_search_timeout == 0) {   //first run                   
                     WiFi_network_search_timeout = now + (Set.timeoutRouter * 500);//half time
                 }
@@ -116,9 +125,9 @@ void WiFi_handle_connection() {
 
             case 15:
                 myIP = WiFi.localIP();
-                Serial.print("Connected IP - Address : "); Serial.println(myIP);                
+                Serial.print("Connected IP - Address : "); Serial.println(myIP);
                 WiFi_ipDestination = myIP;
-                WiFi_ipDestination[3] = Set.WiFi_ipDest_ending;                
+                WiFi_ipDestination[3] = Set.WiFi_ipDest_ending;
                 Serial.print("sending to IP - Address : "); Serial.println(WiFi_ipDestination);
                 gwIP = WiFi.gatewayIP();
                 Serial.print("Gateway IP - Address : "); Serial.println(gwIP);
@@ -191,7 +200,7 @@ void WiFi_handle_connection() {
 
             case 30://ESP32 NTRIP client
                 //create a task that will be executed in the NTRIPcode() function, with priority 1 and executed on core 1
-                xTaskCreatePinnedToCore(NTRIP_Client_Code, "Core1", 3072, NULL, 1, &Core1, 1);
+                xTaskCreatePinnedToCore(NTRIP_Client_Code, "Core1", 3072, NULL, 1, &taskHandle_WiFi_NTRIP, 1);
                 delay(500);
                 NtripDataTime = millis();
                 WiFi_connect_step = 100;
@@ -319,7 +328,7 @@ void WiFi_STA_connect_network() {//run WiFi_scan_networks first
     case 4: WiFi.begin(Set.ssid4, Set.password4); break;
     case 5: WiFi.begin(Set.ssid5, Set.password5); break;
     }
-    if (WiFi_connect_timer == 0) { WiFi.config(0U, 0U, 0U); } //set IP to DHCP on first run. call immediately after begin!
+    //if (WiFi_connect_timer == 0) { WiFi.config(0U, 0U, 0U); } //set IP to DHCP on first run. call immediately after begin!
 }
 
         //-------------------------------------------------------------------------------------------------
@@ -353,71 +362,110 @@ void WiFi_Start_AP() {
 //=================================================================================================
 //Ethernet
 //-------------------------------------------------------------------------------------------------
+void Eth_handle_connection(void* pvParameters) {
+    unsigned long Eth_connect_timer = 0, now = 0;
+    Serial.println("started new task on core 0: Ethernet handle connection");
+    for (;;) { // MAIN LOOP FOR THIS CORE
+        now = millis();
+        if (Set.debugmode) { Serial.print("Ethernet connection step: "); Serial.println(Eth_connect_step); }
+        if (Eth_connect_step > 0) {
+            if (now > Eth_connect_timer + 300) {
+                switch (Eth_connect_step) {
+                case 10:
+                    Ethernet.init(Set.Eth_CS_PIN);
+                    Eth_connect_step++;
+                    break;
+                case 11:
+                    if (Set.Eth_static_IP) { Ethernet.begin(Set.mac, Set.Eth_myip); }
+                    else {
+                        Ethernet.begin(Set.mac); //use DHCP
+                        if (Set.debugmode) { Serial.println("waiting for DHCP IP adress"); }
+                    }                    
+                    Eth_connect_step++;
+                    break;
+                case 12:
+                    if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+                        Serial.println("no Ethernet hardware, Data Transfer set to WiFi");
+                        Eth_connect_step = 255;//no Ethernet, end Ethernet
+                        if (Set.DataTransVia == 10) {
+                            Set.DataTransVia = 7; //change DataTransfer to WiFi
+                            if (WiFi_connect_step == 255) { WiFi_connect_step = 10; }//start WiFi if not running
+                        }
+                    }
+                    else {
+                        Serial.println("Ethernet hardware found, checking for connection");
+                        Eth_connect_step++;
+                    }
+                    break;
+                case 13:
+                    if (Ethernet.linkStatus() == LinkOFF) {
+                        Serial.println("Ethernet cable is not connected. Retrying in 5 Sek.");
+                        vTaskDelay(5000);
+                    }
+                    else { Serial.println("Ethernet status OK"); Eth_connect_step++; }
+                    break;
+                case 14:
+                    Serial.print("Got IP ");
+                    Serial.println(Ethernet.localIP());
+                    if ((Ethernet.localIP()[0] == 0) && (Ethernet.localIP()[1] == 0) && (Ethernet.localIP()[2] == 0) && (Ethernet.localIP()[3] == 0)) {
+                        //got IP 0.0.0.0 = no DCHP so use static IP
+                        Set.Eth_static_IP = true;
+                    }
+                    //use DHCP but change IP ending (x.x.x.80)
+                    if (!Set.Eth_static_IP) {
+                        for (byte n = 0; n < 3; n++) {
+                            Set.Eth_myip[n] = Ethernet.localIP()[n];
+                            Eth_ipDestination[n] = Ethernet.localIP()[n];
+                        }
+                        Eth_ipDestination[3] = 255;
+                        Ethernet.setLocalIP(Set.Eth_myip);
+                    }
+                    else {//use static IP
+                        for (byte n = 0; n < 3; n++) {
+                            Eth_ipDestination[n] = Set.Eth_myip[n];
+                        }
+                        Eth_ipDestination[3] = Set.Eth_ipDest_ending;
+                        Ethernet.setLocalIP(Set.Eth_myip);
+                    }
+                    Eth_connect_step++;
+                    break;
+                case 15:
+                    Serial.print("Ethernet IP of roof module: "); Serial.println(Ethernet.localIP());
+                    Serial.print("Ethernet sending to IP: "); Serial.println(Eth_ipDestination);
+                    //init UPD Port sending to AOG
+                    if (Eth_udpRoof.begin(Set.PortGPSToAOG))
+                    {
+                        Serial.print("Ethernet UDP sending from port: ");
+                        Serial.println(Set.PortGPSToAOG);
+                    }
+                    Eth_connect_step++;
+                    break;
+                case 16:
+                    //init UPD Port getting NTRIP from AOG
+                    if (Eth_udpNtrip.begin(Set.AOGNtripPort))
+                    {
+                        Serial.print("Ethernet NTRIP UDP listening to port: ");
+                        Serial.println(Set.AOGNtripPort);
+                    }
+                    Eth_connect_step = 0;//done
+                    break;
 
-void Eth_Start() {
-    Ethernet.init(Set.Eth_CS_PIN);
-    delay(50);
-    Ethernet.begin(mac);
-    delay(200);
-    if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-        Serial.println("no Ethernet hardware");
-    }
-    else {
-        Serial.println("Ethernet hardware found, checking for connection");
-        if (Ethernet.linkStatus() == LinkOFF) {
-            Serial.println("Ethernet cable is not connected.");
+                default:
+                    Eth_connect_step++;
+                    break;
+                }//switch
+                Eth_connect_timer = millis();
+            }
         }
-        else {
-            Serial.println("Ethernet status OK");
-            Serial.print("Got IP ");
-            Serial.println(Ethernet.localIP());
-            if ((Ethernet.localIP()[0] == 0) && (Ethernet.localIP()[1] == 0) && (Ethernet.localIP()[2] == 0) && (Ethernet.localIP()[3] == 0)) {
-                //got IP 0.0.0.0 = no DCHP so use static IP
-                Set.Eth_static_IP = true;
-            }
-            //use DHCP but change IP ending (x.x.x.80)
-            if (!Set.Eth_static_IP) {
-                for (byte n = 0; n < 3; n++) {
-                    Set.Eth_myip[n] = Ethernet.localIP()[n];
-                    Eth_ipDestination[n] = Ethernet.localIP()[n];
-                }
-                Eth_ipDestination[3] = 255;
-                Ethernet.setLocalIP(Set.Eth_myip);
-                delay(100);
-                Serial.print("changed Ethernet IP to "); Serial.println(Ethernet.localIP());
-            }
-            else {//use static IP
-                for (byte n = 0; n < 3; n++) {
-                    Eth_ipDestination[n] = Set.Eth_myip[n];
-                }
-                Eth_ipDestination[3] = Set.Eth_ipDest_ending;
-                Ethernet.setLocalIP(Set.Eth_myip);
-                delay(100);
-                Serial.print("changed Ethernet IP to "); Serial.println(Ethernet.localIP());
-            }
-            Serial.print("Ethernet sending to IP: "); Serial.println(Eth_ipDestination);
-            Ethernet_running = true;
-            //init UPD Port sending to AOG
-            if (Eth_udpRoof.begin(Set.PortGPSToAOG))
-            {
-                Serial.print("Ethernet UDP sending from port: ");
-                Serial.println(Set.PortGPSToAOG);
-            }
-            delay(50);
-            //init UPD Port getting NTRIP from AOG
-            if (Eth_udpNtrip.begin(Set.AOGNtripPort))
-            {
-                Serial.print("Ethernet NTRIP UDP listening to port: ");
-                Serial.println(Set.AOGNtripPort);
-            }
-            delay(50);
+        if ((Eth_connect_step > 240) || (Eth_connect_step == 0)) {
+            Serial.println("closing Ethernet connection task");
+            delay(1);
+            vTaskDelete(NULL);
+            delay(1);
         }
+        vTaskDelay(320);
     }
-    Serial.println();
 }
-
-
-
 
 
 
@@ -662,7 +710,7 @@ void Eth_Start() {
             delay(100);
             Serial.print("changed IP to ");
             Serial.println(Ethernet.localIP());
-            Ethernet_running = true;
+            Eth_connect_step = true;
             //init UPD Port sending to AOG
             if (Eth_udpRoof.begin(Set.PortGPSToAOG))
             {

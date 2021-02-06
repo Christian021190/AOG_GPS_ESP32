@@ -297,7 +297,7 @@ void process_Request()
                 if (!task_NTRIP_Client_running) {
                     Ntrip_restart = 1;
                     NtripDataTime = millis();
-                    xTaskCreatePinnedToCore(NTRIP_Client_Code, "Core1", 3072, NULL, 1, &Core1, 1);
+                    xTaskCreatePinnedToCore(NTRIP_Client_Code, "Core1", 3072, NULL, 1, &taskHandle_WiFi_NTRIP, 1);
                     delay(500);
                 }
                 break;
@@ -328,7 +328,13 @@ void process_Request()
         if (WiFi_Server.argName(n) == "DataTransfVia") {
             temLong = WiFi_Server.arg(n).toInt();
             if ((temLong <= 20) && (temLong >= 0)) { Set.DataTransVia = byte(temLong); }
-            if (Set.DataTransVia == 10) { if (!Ethernet_running) { Eth_Start(); } }
+            if (Set.DataTransVia == 10) {
+                if (Eth_connect_step == 255) {
+                    Eth_connect_step = 10;        
+                    xTaskCreatePinnedToCore(Eth_handle_connection, "Core1EthConnectHandle", 3072, NULL, 1, &taskHandle_Eth_connect, 1);
+                    delay(500);
+                }
+            }
             if (Set.NtripClientBy == 1) {
                 if (Set.DataTransVia > 5) {
                     if (Set.DataTransVia < 10) {

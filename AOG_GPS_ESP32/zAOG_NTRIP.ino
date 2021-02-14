@@ -3,7 +3,7 @@
 
 void Eth_NTRIP_Code(void* pvParameters) {
     Serial.println("started new task on core 0: Ethernet NTRIP");
-    for (;;) { // MAIN LOOP FOR THIS CORE
+    for (;;) { // MAIN LOOP
         if (Eth_connect_step == 0) {
             if (Set.NtripClientBy == 1) {
                 task_Eth_NTRIP_running = true;
@@ -25,11 +25,11 @@ int doEthUDPNtrip() {
     unsigned int packetLenght = Eth_udpNtrip.parsePacket();
     if (packetLenght) {
         if (Set.debugmode) { Serial.print("got NTRIP data via Ethernet lenght: "); Serial.println(packetLenght); }
-        Eth_udpNtrip.read(packetBuffer, packetLenght);
-        Eth_udpNtrip.flush();
+        Eth_udpNtrip.read(Eth_NTRIP_packetBuffer, packetLenght);
+        //Eth_udpNtrip.flush();
         for (unsigned int i = 0; i < packetLenght; i++)
         {
-            Serial1.write(packetBuffer[i]);
+            Serial1.write(Eth_NTRIP_packetBuffer[i]);
         }
         NtripDataTime = millis();
     }  // end of Packet
@@ -43,7 +43,7 @@ int doEthUDPNtrip() {
 void NTRIP_Client_Code(void* pvParameters) {
     unsigned long WiFi_Ntrip_lost_time = 0;// now;
 
-    for (;;) { // MAIN LOOP FOR THIS CORE
+    for (;;) { // MAIN LOOP
         if ((Set.NtripClientBy == 2) && (WiFi_connect_step < 3)) {
             task_NTRIP_Client_running = true;
             if ((WiFi.status() == WL_CONNECTED) && (Ntrip_restart < 10)) { do_WiFi_NTRIP(); }

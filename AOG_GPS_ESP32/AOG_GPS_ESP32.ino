@@ -1,7 +1,7 @@
 //ESP32 programm for UBLOX receivers to send NMEA to AgOpenGPS or other program 
 
 byte vers_nr = 48;
-char VersionTXT[120] = " - 3. Februar 2021 by MTZ8302<br>(Ethernet support, NTRIP client for ESP32, multiple WiFi networks)";
+char VersionTXT[120] = " - 14. Februar 2021 by MTZ8302<br>(Ethernet support, NTRIP client for ESP32, multiple WiFi networks)";
 
 //works with 1 or 2 receivers
 
@@ -56,6 +56,8 @@ struct set {
     byte LEDWiFi_PIN = 2;      // WiFi Status LED 0 = off
     byte LEDWiFi_ON_Level = HIGH;    //HIGH = LED on high, LOW = LED on low
 
+    bool CMPS14_present = true;
+
     //Network---------------------------------------------------------------------------------------------
 #if HardwarePlatform == 0
     //tractors WiFi or mobile hotspots
@@ -63,15 +65,15 @@ struct set {
     char password1[24] = "";                 // WiFi network password//Accesspoint name and password
     char ssid2[24] = "Matthias Cat S62 Pro";// WiFi network Client name
     char password2[24] = "";                 // WiFi network password//Accesspoint name and password
-    char ssid3[24] = "Fendt_209V";           // WiFi network Client name
+    char ssid3[24] = "";           // WiFi network Client name
     char password3[24] = "";                 // WiFi network password//Accesspoint name and password
-    char ssid4[24] = "CAT S41";       // WiFi network Client name
+    char ssid4[24] = "WLANHammer";       // WiFi network Client name
     char password4[24] = "";                 // WiFi network password//Accesspoint name and password
-    char ssid5[24] = "WLANHammer";    // WiFi network Client name
+    char ssid5[24] = "WLAN-TelekomMiniHotspot";    // WiFi network Client name
     char password5[24] = "";                 // WiFi network password//Accesspoint name and password
 
     char ssid_ap[24] = "GPS_unit_F9P_Net";  // name of Access point, if no WiFi found, NO password!!
-    int timeoutRouter = 20;                //time (s) to search for existing WiFi, than starting Accesspoint 
+    int timeoutRouter = 10;                //time (s) to search for existing WiFi, than starting Accesspoint 
 
     byte timeoutWebIO = 255;                 //time (min) afterwards webinterface is switched off
 
@@ -90,7 +92,7 @@ struct set {
 
 
     //WiFi
-    byte WiFi_myip[4] = { 192, 168, 1, 79 };     // Roofcontrol module 
+    byte WiFi_myip[4] = { 192, 168, 2, 79 };     // Roofcontrol module 
     byte WiFi_gwip[4] = { 192, 168, 1, 1 };      // Gateway IP only used if Accesspoint created
     byte WiFi_ipDest_ending = 255;//ending of IP address to send UDP data to
     byte mask[4] = { 255, 255, 255, 0 };
@@ -99,7 +101,7 @@ struct set {
     //Ethernet
     byte Eth_myip[4] = { 192, 168, 1, 80 };     // Roofcontrol module 
     byte Eth_ipDest_ending = 100;//ending of IP address to send UDP data to
-    byte mac[6] = { 0x90,0xA2,0xDA,0x10,0xB3,0x1B };
+    byte Eth_mac[6] = { 0x90,0xA2,0xDA,0x10,0xB3,0x1B };
     bool Eth_static_IP = false;					// false = use DHPC and set last number to 80 (x.x.x.80) / true = use IP as set above
 
     unsigned int PortGPSToAOG = 5544;             //this is port of this module: Autosteer = 5577 IMU = 5566 GPS = 
@@ -134,7 +136,7 @@ struct set {
     byte sendHDT = 0;                     //1: send NMEA message 0: off
 
 
-    bool debugmode = false;
+    bool debugmode = true;
     bool debugmodeUBX = false;
     bool debugmodeHeading = false;
     bool debugmodeVirtAnt = false;
@@ -154,10 +156,13 @@ unsigned int LED_WIFI_time = 0;
 unsigned int LED_WIFI_pulse = 2000;   //light on in ms 
 unsigned int LED_WIFI_pause = 1500;   //light off in ms
 boolean LED_WIFI_ON = false;
-unsigned long NtripDataTime = 0, now = 0, WebIOTimeOut = 0, WiFi_connect_timer = 0, WiFi_network_search_timeout = 0;//WiFi_lost_time = 0,
-bool WebIORunning = true, WiFi_UDP_running = false;
-byte WiFi_connect_step = 0, WiFi_connect_tries = 0;
 
+//WIFI+Ethernet
+unsigned long NtripDataTime = 0, now = 0, WebIOTimeOut = 0, WiFi_connect_timer = 0, WiFi_network_search_timeout = 0;//WiFi_lost_time = 0,
+byte Eth_connect_step, WiFi_connect_step = 10, WiFi_STA_connect_call_nr = 1, WiFi_netw_nr = 0, my_WiFi_Mode = 0;   // WIFI_STA = 1 = Workstation  WIFI_AP = 2  = Accesspoint
+IPAddress WiFi_ipDestination, Eth_ipDestination; //set in network.ino
+bool  WiFi_STA_running = false, task_Eth_NTRIP_running = false, WebIORunning = true, WiFi_UDP_running = false;
+char Eth_NTRIP_packetBuffer[512];// buffer for receiving and sending data
 
 //Kalman filter roll
 double rollK, rollPc, rollG, rollXp, rollZp, rollXe;
@@ -200,14 +205,7 @@ bool filterGPSpos = false;
 double HeadingQuotaVTG = 0.5;
 
 #if HardwarePlatform == 0
-//WIFI+Ethernet
-IPAddress WiFi_ipDestination,Eth_ipDestination; //set in network.ino
-byte WiFi_netw_nr = 0 , my_WiFi_Mode = 0;   // WIFI_STA = 1 = Workstation  WIFI_AP = 2  = Accesspoint
 
-bool  WiFi_STA_running = false, task_Eth_NTRIP_running = false;
-// buffers for receiving and sending data
-char packetBuffer[512];//300
-byte Eth_connect_step;
 
 //NTRIP
 unsigned long lifesign, NTRIP_GGA_send_lastTime; 
@@ -355,19 +353,30 @@ WebServer WiFi_Server(80);
 WiFiClient WiFi_Ntrip_cl;
 
 
-TaskHandle_t taskHandle_WiFi_connect;
 TaskHandle_t taskHandle_WiFi_NTRIP;
 TaskHandle_t taskHandle_Eth_connect;
 TaskHandle_t taskHandle_Eth_NTRIP;
 
 #endif
+TaskHandle_t taskHandle_CMPS14;
+
+
+
+
+#include <Wire.h>
 
 // SETUP ------------------------------------------------------------------------------------------
 
 void setup()
 {
     delay(200);
-    delay(50);
+    delay(50);  
+
+    //set up communication
+ // Wire.begin();  
+  //50Khz I2C
+  //TWBR = 144;
+
     //start serials
     Serial.begin(115200);
     delay(50);
@@ -410,15 +419,22 @@ void setup()
     WebIORunning = false;
     WiFi_UDP_running = false;
     WiFi_handle_connection();
-#endif
 
+#endif
+/*
+    if (Set.CMPS14_present) {
+        Wire.begin();
+        delay(500);
+        xTaskCreate(CMPS14_handle, "CMPS14_handling", 3072, NULL, 1, &taskHandle_CMPS14);
+        delay(500);
+    }
+  */  
 }
 
 // MAIN loop  -------------------------------------------------------------------------------------------
 
 void loop()
 {
-
     getUBX();//read serials    
 
     if (UBXRingCount1 != OGIfromUBX)//new UXB exists
@@ -538,7 +554,8 @@ void loop()
                 if ((newOGI) && (Set.sendOGI == 1)) {
                     Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
                     for (byte n = 0; n < OGIdigit; n++) {
-                        Eth_udpRoof.print(char(OGIBuffer[n]));
+                       // Eth_udpRoof.print(char(OGIBuffer[n]));
+                        Eth_udpRoof.write(char(OGIBuffer[n]));
                     }
                     Eth_udpRoof.endPacket();
                     newOGI = false;
@@ -574,6 +591,7 @@ void loop()
     //WiFi rescann button pressed?
     if (!digitalRead(Set.Button_WiFi_rescan_PIN)) {
         WiFi_connect_timer = 0;
+        WiFi_STA_connect_call_nr = 0;//to enable DHCP for WiFi
         WiFi_connect_step = 3;
         my_WiFi_Mode = 0;//set 0 to end Ntrip task
         WiFi_UDP_running = false;

@@ -1,5 +1,5 @@
 #if HardwarePlatform == 0
-// WIFI handling 31. Jan 2021 for ESP32  -------------------------------------------
+// WIFI handling 14. Feb 2021 for ESP32  -------------------------------------------
 
 void WiFi_handle_connection() {
     if (WiFi_connect_step > 0) {
@@ -10,6 +10,7 @@ void WiFi_handle_connection() {
             //do every half second
             if (Set.debugmode) { Serial.print("WiFi_connect_step: "); Serial.println(WiFi_connect_step); }
             switch (WiFi_connect_step) {
+                //check WiFi connection ping            
             case 1:
                 if (Ping.ping(Set.WiFi_gwip)) { //retry to connect NTRIP, WiFi is available
                     WiFi_connect_timer = 0;
@@ -24,16 +25,16 @@ void WiFi_handle_connection() {
                 }
                 else { WiFi_connect_timer = now; WiFi_connect_step++; }//no network
                 break;
+                //wait for NTRIP client to close
             case 2:
                 if (!task_NTRIP_Client_running) { WiFi_connect_step++; }
                 WiFi_connect_timer = now;
                 break;
-
             case 3:
                 if (!task_NTRIP_Client_running) { WiFi_connect_step++; }
                 WiFi_connect_timer = now;
                 break;
-
+                //close Webserver, UDP ...
             case 4:
                 WiFi_netw_nr = 0;
                 if (WebIORunning) {
@@ -45,23 +46,19 @@ void WiFi_handle_connection() {
                 WiFi_connect_step++;
                 WiFi_connect_timer = now;
                 break;
+                //turn WiFi off
             case 5:
-                WiFi.mode(WIFI_OFF);
+                WiFi.mode(WIFI_OFF);                
+                WiFi_network_search_timeout = 0;
                 WiFi_connect_step = 10;
                 WiFi_connect_timer = now;
                 break;
 
+                //WiFi network scan
             case 10:
                 WiFi_netw_nr = 0;
-                WiFi_network_search_timeout = 0;
-                WiFi_connect_tries = 0;
                 WebIORunning = false;
                 WiFi_UDP_running = false;
-                WiFi.mode(WIFI_STA);   //  Workstation
-                WiFi_connect_step++;
-                WiFi_connect_timer = now;
-                break;
-            case 11:
                 if (WiFi_network_search_timeout == 0) {   //first run                 
                     WiFi_network_search_timeout = now + (Set.timeoutRouter * 1000);
                 }
@@ -75,21 +72,30 @@ void WiFi_handle_connection() {
                         WiFi_network_search_timeout = 0;//reset timer
                     }
                 }
+                WiFi_connect_timer = millis();
+                break;
+                //start WiFi connection
+            case 11:
+                WiFi.mode(WIFI_STA);   //  Workstation 
+                WiFi_connect_step++;
                 WiFi_connect_timer = now;
                 break;
-
             case 12:
-                WiFi_STA_connect_network();
-                delay(1);
-                if (WiFi_network_search_timeout == 0) {   //first run                   
+                if (WiFi_network_search_timeout == 0) {   //first run  
                     WiFi_network_search_timeout = now + (Set.timeoutRouter * 500);//half time
                 }
+                WiFi_STA_connect_network();
+                WiFi_connect_step++;
+                WiFi_connect_timer = now;
+                break;
+            case 13:
                 if (WiFi.status() != WL_CONNECTED) {
                     Serial.print(".");
+                    WiFi_connect_timer = now - 200;//check faster
                     if (now > WiFi_network_search_timeout) {
                         //timeout
-                        WiFi_connect_step = 19;//close WiFi and try again
-                        WiFi_connect_tries++;
+                        WiFi_STA_connect_call_nr++;
+                        WiFi_connect_step = 17;//close WiFi and try again
                         WiFi_network_search_timeout += (Set.timeoutRouter * 500);//add rest of time
                     }
                 }
@@ -97,15 +103,10 @@ void WiFi_handle_connection() {
                     //connected
                     WiFi_connect_step++;
                     WiFi_network_search_timeout = 0;//reset timer
+                    WiFi_connect_timer = now + 700;//wait longer to get correct IP
                 }
-                WiFi_connect_timer = now;
                 break;
-
-            case 13:
-                WiFi_connect_step++; //need to wait to get correct IP
-                WiFi_connect_timer = now;
-                break;
-
+                //change IP / DHCP
             case 14:
                 //connected
                 Serial.println();
@@ -122,7 +123,6 @@ void WiFi_handle_connection() {
                 WiFi_connect_step++;
                 WiFi_connect_timer = now;
                 break;
-
             case 15:
                 myIP = WiFi.localIP();
                 Serial.print("Connected IP - Address : "); Serial.println(myIP);
@@ -135,18 +135,26 @@ void WiFi_handle_connection() {
                 WiFi_connect_step = 20;
                 WiFi_connect_timer = now;
                 break;
-
-            case 19://no connection at first try, try again
-                WiFi.disconnect();
-                if (WiFi_connect_tries > 1) {//start access point
+                //no connection at first try, try again
+            case 17:                               
+                if (WiFi_STA_connect_call_nr > 2) { //create access point
                     WiFi_connect_step = 50;
-                    Serial.println();
-                    Serial.println("error connecting to WiFi network");
-                }
-                else { WiFi_connect_step = 12; Serial.print("-"); }
-                WiFi_connect_timer = now;
+                    WiFi_netw_nr = 0; }
+                else { 
+                    WiFi.disconnect(); 
+                    delay(2);
+                    WiFi_connect_step++; 
+                    Serial.print("-");
+                }                
+                WiFi_connect_timer = now + 500;//wait a little longer
+                break;
+            case 18:                
+                WiFi.mode(WIFI_OFF); delay(2);
+                WiFi_connect_step = 11; //set STA
+                WiFi_connect_timer = now + 500;
                 break;
 
+                //UDP
             case 20://init WiFi UDP sending to AOG
                 if (WiFi_udpRoof.listen(Set.PortGPSToAOG))
                 {
@@ -167,7 +175,6 @@ void WiFi_handle_connection() {
                 }
                 WiFi_connect_timer = now;
                 break;
-
             case 21:
                 //init WiFi UPD listening to AOG 
                 if (WiFi_udpNtrip.listen(Set.AOGNtripPort))
@@ -180,7 +187,6 @@ void WiFi_handle_connection() {
                 WiFi_connect_step++;
                 WiFi_connect_timer = now;
                 break;
-
             case 22:
                 // UDP NTRIP packet handling
                 WiFi_udpNtrip.onPacket([](AsyncUDPPacket packet)
@@ -198,6 +204,7 @@ void WiFi_handle_connection() {
                 WiFi_connect_timer = now;
                 break;
 
+                //NTRIP client on ESP32
             case 30://ESP32 NTRIP client
                 //create a task that will be executed in the NTRIPcode() function, with priority 1 and executed on core 1
                 xTaskCreatePinnedToCore(NTRIP_Client_Code, "Core1", 3072, NULL, 1, &taskHandle_WiFi_NTRIP, 1);
@@ -207,12 +214,49 @@ void WiFi_handle_connection() {
                 WiFi_connect_timer = now;
                 break;
 
+                //Access point start
             case 50://start access point
                 WiFi_Start_AP();
+                WiFi_connect_step++;
+                WiFi_connect_timer = now;
+                break;
+            case 51:
+                if (my_WiFi_Mode == WIFI_AP) { WiFi_connect_step++; }
+                WiFi_connect_timer = now;
+                break;
+            case 52://init WiFi UDP sending to AOG
+                if (WiFi_udpRoof.listen(Set.PortGPSToAOG))
+                {
+                    Serial.print("UDP writing to IP: ");
+                    Serial.println(WiFi_ipDestination);
+                    Serial.print("UDP writing to port: ");
+                    Serial.println(Set.PortDestination);
+                    Serial.print("UDP writing from port: ");
+                    Serial.println(Set.PortGPSToAOG);
+                }
+                if (Set.NtripClientBy == 0) { WiFi_connect_step = 100; WiFi_UDP_running = true; }
+                else {
+                    if (Set.NtripClientBy == 1) {
+                        if ((Set.DataTransVia > 5) && (Set.DataTransVia < 10)) { WiFi_connect_step++; }
+                        else { WiFi_connect_step = 100; }
+                    }
+                }
+                WiFi_connect_timer = now;
+                break;
+            case 53:
+                //init WiFi UPD listening to AOG 
+                if (WiFi_udpNtrip.listen(Set.AOGNtripPort))
+                {
+                    Serial.print("NTRIP WiFi UDP Listening to port: ");
+                    Serial.println(Set.AOGNtripPort);
+                    Serial.println();
+                }
+                delay(2);
                 WiFi_connect_step = 100;
                 WiFi_connect_timer = now;
                 break;
 
+                //Webserver start
             case 100:
                 //start Server for Webinterface
                 WiFi_StartServer();
@@ -226,6 +270,25 @@ void WiFi_handle_connection() {
                 WiFi_connect_step = 0;
                 WiFi_connect_timer = 0;
                 LED_WIFI_ON = true;
+                Serial.println(); Serial.println();
+                if (WiFi_netw_nr == 0) { myIP = WiFi.softAPIP(); }
+                else { myIP = WiFi.localIP(); }
+                Serial.print("started settings Webinterface at: ");
+                for (byte i = 0; i < 3; i++) {
+                    Serial.print(myIP[i]); Serial.print(".");
+                }
+                Serial.println(myIP[3]);
+                Serial.println("type IP in Internet browser to get to webinterface");
+                Serial.print("you need to be in WiFi network ");
+                switch (WiFi_netw_nr) {
+                case 0: Serial.print(Set.ssid_ap); break;
+                case 1: Serial.print(Set.ssid1); break;
+                case 2: Serial.print(Set.ssid2); break;
+                case 3: Serial.print(Set.ssid3); break;
+                case 4: Serial.print(Set.ssid4); break;
+                case 5: Serial.print(Set.ssid5); break;
+                }
+                Serial.println(" to get access"); Serial.println(); Serial.println();
 #if useLED_BUILTIN
                 digitalWrite(LED_BUILTIN, HIGH);
 #endif
@@ -233,16 +296,13 @@ void WiFi_handle_connection() {
                 break;
 
             default:
-                WiFi_connect_step++;
+                WiFi_connect_step++; 
+                Serial.print("default called at WiFi_connection_step "); Serial.println(WiFi_connect_step);
                 break;
             }
         }
     }
 }
-
-
-
-
 
 //---------------------------------------------------------------------
 // scanning for known WiFi networks
@@ -321,6 +381,7 @@ void WiFi_scan_networks()
 //connects to WiFi network
 
 void WiFi_STA_connect_network() {//run WiFi_scan_networks first
+   // Serial.print("netwNr: "); Serial.print(WiFi_netw_nr);
     switch (WiFi_netw_nr) {
     case 1: WiFi.begin(Set.ssid1, Set.password1); break;
     case 2: WiFi.begin(Set.ssid2, Set.password2); break;
@@ -328,17 +389,17 @@ void WiFi_STA_connect_network() {//run WiFi_scan_networks first
     case 4: WiFi.begin(Set.ssid4, Set.password4); break;
     case 5: WiFi.begin(Set.ssid5, Set.password5); break;
     }
-    //if (WiFi_connect_timer == 0) { WiFi.config(0U, 0U, 0U); } //set IP to DHCP on first run. call immediately after begin!
+    //set IP to DHCP on first run. call immediately after begin
+    if (WiFi_STA_connect_call_nr == 0) { WiFi.config(0U, 0U, 0U); Serial.println("enable DHCP for WiFi"); WiFi_STA_connect_call_nr++; }
+    delay(2);
 }
 
-        //-------------------------------------------------------------------------------------------------
-        // start WiFi Access Point = only if no existing WiFi or connection fails
-
+//-------------------------------------------------------------------------------------------------
+// start WiFi Access Point = only if no existing WiFi or connection fails
 
 void WiFi_Start_AP() {
     WiFi.mode(WIFI_AP);   // Accesspoint
-    WiFi.softAP(Set.ssid_ap, "");
-    delay(5);
+    WiFi.softAP(Set.ssid_ap, "");   
     while (!SYSTEM_EVENT_AP_START) // wait until AP has started
     {
         delay(100);
@@ -346,9 +407,9 @@ void WiFi_Start_AP() {
     }
     delay(150);//right IP adress only with this delay 
     WiFi.softAPConfig(Set.WiFi_gwip, Set.WiFi_gwip, Set.mask);  // set fix IP for AP  
-    delay(300);
+    delay(350);
     IPAddress myIP = WiFi.softAPIP();
-    //AP_time = millis();
+    delay(300);
     Serial.print("Accesspoint started - Name : ");
     Serial.println(Set.ssid_ap);
     Serial.print(" IP address: ");
@@ -364,8 +425,9 @@ void WiFi_Start_AP() {
 //-------------------------------------------------------------------------------------------------
 void Eth_handle_connection(void* pvParameters) {
     unsigned long Eth_connect_timer = 0, now = 0;
+    if (Set.timeoutRouter < 20) { if (WiFi_connect_step != 0) { vTaskDelay(25000); } }//waiting for WiFi to start first
     Serial.println("started new task on core 0: Ethernet handle connection");
-    for (;;) { // MAIN LOOP FOR THIS CORE
+    for (;;) { // MAIN LOOP
         now = millis();
         if (Set.debugmode) { Serial.print("Ethernet connection step: "); Serial.println(Eth_connect_step); }
         if (Eth_connect_step > 0) {
@@ -376,9 +438,9 @@ void Eth_handle_connection(void* pvParameters) {
                     Eth_connect_step++;
                     break;
                 case 11:
-                    if (Set.Eth_static_IP) { Ethernet.begin(Set.mac, Set.Eth_myip); }
+                    if (Set.Eth_static_IP) { Ethernet.begin(Set.Eth_mac, Set.Eth_myip); }
                     else {
-                        Ethernet.begin(Set.mac); //use DHCP
+                        Ethernet.begin(Set.Eth_mac); //use DHCP
                         if (Set.debugmode) { Serial.println("waiting for DHCP IP adress"); }
                     }                    
                     Eth_connect_step++;
@@ -467,24 +529,21 @@ void Eth_handle_connection(void* pvParameters) {
     }
 }
 
-
-
 /*
-
 //---------------------------------------------------------------------
 // start WiFi in Workstation mode = log to existing WiFi
 
 // WIFI handling 15. Jan 2021 for ESP32  -------------------------------------------
 
-void WiFi_Start_STA() {
+void WiFi_Start_STA_old_code() {
     unsigned long timeout, timeout2;
     now = millis();
     timeout = now + (Set.timeoutRouter * 1000);
     timeout2 = timeout - (Set.timeoutRouter * 500);
-
+    Serial.println("retrying to connect to WiFi network with other code");
     while (millis() < timeout) {
         //scanning for known networks in reach, MUST be done first, to get network #
-        scan_WiFi_connections();
+        WiFi_scan_networks();
         if (WiFi_netw_nr > 0) { break; }
         delay(1000);
     }    
@@ -492,12 +551,13 @@ void WiFi_Start_STA() {
     delay(10);
     WiFi.mode(WIFI_STA);   //  Workstation
     delay(50);
+    Serial.print("connecting to ");
     switch (WiFi_netw_nr) {
-    case 1: WiFi.begin(Set.ssid1, Set.password1); break;
-    case 2: WiFi.begin(Set.ssid2, Set.password2); break;
-    case 3: WiFi.begin(Set.ssid3, Set.password3); break;
-    case 4: WiFi.begin(Set.ssid4, Set.password4); break;
-    case 5: WiFi.begin(Set.ssid5, Set.password5); break;
+    case 1: WiFi.begin(Set.ssid1, Set.password1); Serial.println(Set.ssid1); break;
+    case 2: WiFi.begin(Set.ssid2, Set.password2); Serial.println(Set.ssid2); break;
+    case 3: WiFi.begin(Set.ssid3, Set.password3); Serial.println(Set.ssid3); break;
+    case 4: WiFi.begin(Set.ssid4, Set.password4); Serial.println(Set.ssid4); break;
+    case 5: WiFi.begin(Set.ssid5, Set.password5); Serial.println(Set.ssid5); break;
     }
     WiFi.config(0U, 0U, 0U);  //set IP to DHCP call immediately after begin!
     delay(300);
@@ -520,66 +580,18 @@ void WiFi_Start_STA() {
             }
             timeout2 = timeout + 100;
         }
-        //WIFI LED blink in double time while connecting
-        if (!LED_WIFI_ON) {
-            if (millis() > (LED_WIFI_time + (LED_WIFI_pause >> 2)))
-            {
-                LED_WIFI_time = millis();
-                LED_WIFI_ON = true;
-                digitalWrite(Set.LEDWiFi_PIN, !Set.LEDWiFi_ON_Level);
-            }
-        }
-        if (LED_WIFI_ON) {
-            if (millis() > (LED_WIFI_time + (LED_WIFI_pulse >> 2))) {
-                LED_WIFI_time = millis();
-                LED_WIFI_ON = false;
-                digitalWrite(Set.LEDWiFi_PIN, Set.LEDWiFi_ON_Level);
-            }
-        }
     }  //connected or timeout  
 
     Serial.println();  
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        delay(200);
+    if (WiFi.status() == WL_CONNECTED) {WiFi_connect_step = 13;}
+    else {
+        WiFi_connect_step = 50;
         Serial.println();
-        Serial.println("WiFi Client successfully connected");
-        Serial.print("Connected IP - Address : ");
-        IPAddress myIP = WiFi.localIP();
-        Serial.println(myIP);
-        //after connecting get IP from router -> change it to x.x.x.IP Ending (from settings)
-        myIP[3] = Set.WiFi_myip[3]; //set ESP32 IP to x.x.x.myIP_ending
-        Serial.print("changing IP to: ");
-        Serial.println(myIP);        
-        IPAddress gwIP = WiFi.gatewayIP();
-        if (!WiFi.config(myIP, gwIP, Set.mask, gwIP)) { Serial.println("Network failed to configure"); }
-        delay(200);
-        Serial.print("Connected IP - Address : ");
-        myIP = WiFi.localIP();
-        WiFi_ipDestination = myIP;
-        WiFi_ipDestination[3] = 255;
-        Serial.println(myIP);
-        Serial.print("Gateway IP - Address : ");
-        Serial.println(gwIP);
-        Set.WiFi_ipDestination[0] = myIP[0];
-        Set.WiFi_ipDestination[1] = myIP[1];
-        Set.WiFi_ipDestination[2] = myIP[2];
-        Set.WiFi_ipDestination[3] = 255;//set IP to x.x.x.255 according to actual network
-        LED_WIFI_ON = true;
-        digitalWrite(Set.LEDWiFi_PIN, Set.LEDWiFi_ON_Level);
-        my_WiFi_Mode = 1;// WIFI_STA;
+        Serial.println("error connecting to WiFi network");
     }
-    else
-    {
-        Serial.println("WLAN-Client-Connection failed");
-        Serial.println();
-        LED_WIFI_ON = false;
-        digitalWrite(Set.LEDWiFi_PIN, !Set.LEDWiFi_ON_Level);
-    }
-    delay(20);
 }
-
-
+*/
+/*
 //---------------------------------------------------------------------
 // scanning for known WiFi networks. Logic by Franz Husch
 
@@ -687,7 +699,7 @@ void WiFi_Start_AP() {
 void Eth_Start() {
     Ethernet.init(Set.Eth_CS_PIN);
     delay(50);
-    Ethernet.begin(mac);
+    Ethernet.begin(Eth_mac);
     delay(200);
     if (Ethernet.hardwareStatus() == EthernetNoHardware) {
         Serial.println("no Ethernet hardware");
@@ -740,11 +752,11 @@ void doEthUDPNtrip() {
     if (packetLenght)
     {
         if (Set.debugmode) { Serial.println("got NTRIP data via Ethernet"); }
-        Eth_udpNtrip.read(packetBuffer, packetLenght);
+        Eth_udpNtrip.read(Eth_NTRIP_packetBuffer, packetLenght);
         Eth_udpNtrip.flush();
         for (unsigned int i = 0; i < packetLenght; i++)
         {
-            Serial1.write(packetBuffer[i]);
+            Serial1.write(Eth_NTRIP_packetBuffer[i]);
         }
         Serial1.println(); //really send data from UART buffer
         NtripDataTime = millis();        
@@ -767,11 +779,11 @@ void doEthUDPTest() {
     {
         Serial.print(millis());
         Serial.println("got UDP data via Ethernet");
-        Eth_udpNtrip.read(packetBuffer, packetLenght);
+        Eth_udpNtrip.read(Eth_NTRIP_packetBuffer, packetLenght);
         for (unsigned int i = 0; i < packetLenght; i++)
         {
-            //Serial1.print(packetBuffer[i]);
-            Serial.print(packetBuffer[i]);
+            //Serial1.print(Eth_NTRIP_packetBuffer[i]);
+            Serial.print(Eth_NTRIP_packetBuffer[i]);
         }
         NtripDataTime = millis();
         // end of Packet

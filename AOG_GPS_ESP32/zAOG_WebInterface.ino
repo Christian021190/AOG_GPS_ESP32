@@ -173,7 +173,77 @@ void process_Request()
             temLong = WiFi_Server.arg(n).toInt();
             if ((temLong >= 2) && (temLong <= 255)) { Set.timeoutWebIO = byte(temLong); }
         }
+        if (WiFi_Server.argName(n) == "WiFiIP0") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.WiFi_myip[0] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "WiFiIP1") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.WiFi_myip[1] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "WiFiIP2") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.WiFi_myip[2] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "WiFiIP3") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.WiFi_myip[3] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "WiFiIPDest") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.WiFi_ipDest_ending = byte(temInt);
+        }
 
+        if (WiFi_Server.argName(n) == "EthIP0") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_myip[0] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthIP1") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_myip[1] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthIP2") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_myip[2] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthIP3") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_myip[3] = byte(temInt);
+        }   
+        if (WiFi_Server.argName(n) == "EthStatIP") {
+            temInt = WiFi_Server.arg(n).toInt();
+            if (temInt == 1) { Set.Eth_static_IP = true; }
+            else { Set.Eth_static_IP = false; }
+        }
+        if (WiFi_Server.argName(n) == "EthIPDest") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_ipDest_ending = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthMac0") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_mac[0] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthMac1") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_mac[1] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthMac2") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_mac[2] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthMac3") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_mac[3] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthMac4") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_mac[4] = byte(temInt);
+        }
+        if (WiFi_Server.argName(n) == "EthMac5") {
+            temInt = WiFi_Server.arg(n).toInt();
+            Set.Eth_mac[5] = byte(temInt);
+        }        
+        
         if (WiFi_Server.argName(n) == "GPSPosCorrByRoll") {
             if (WiFi_Server.arg(n) == "true") { Set.GPSPosCorrByRoll = 1; }
             else { Set.GPSPosCorrByRoll = 0; }
@@ -676,29 +746,6 @@ void make_HTML01() {
     strcat(HTML_String, "</table>");
     strcat(HTML_String, "</form>");
     strcat(HTML_String, "<br><hr>");
-/*
-    //---------------------------------------------------------------------------------------------
-    // Checkboxes static IP
-    strcat(HTML_String, "<h2>IP configuration</h2>");
-    strcat(HTML_String, "<form>");
-    strcat(HTML_String, "<table>");
-    set_colgroup(300, 250, 150, 0, 0);
-
-    strcat(HTML_String, "<tr>");
-    strcat(HTML_String, "<td></td><td><input type=\"checkbox\" onclick=\"sendVal('/?seOGI='+this.checked)\" name=\"seOGI\" id = \"Part\" value = \"1\" ");
-    if (Set.sendOGI == 1) strcat(HTML_String, "checked ");
-    strcat(HTML_String, "> ");
-    strcat(HTML_String, "<label for =\"Part\"> send PAOGI</label>");
-    strcat(HTML_String, "</td>");
-    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
-
-
-    strcat(HTML_String, "</tr>");
-
-    strcat(HTML_String, "</table>");
-    strcat(HTML_String, "</form>");
-    strcat(HTML_String, "<br><hr>");
-*/
 
 
     //---------------------------------------------------------------------------------------------  
@@ -803,7 +850,124 @@ void make_HTML01() {
 
     strcat(HTML_String, "</table></form>");
     strcat(HTML_String, "<br><hr>");
-    
+
+    //---------------------------------------------------------------------------------------------  
+    // WiFi IP settings 
+    strcat(HTML_String, "<h2>WiFi IP settings</h2>");
+    strcat(HTML_String, "<form>");
+    //IP
+    strcat(HTML_String, "<b>IP address for WiFi</b><br>When using DHCP the last number is set as IP from here, the first 3 numbers are set by DHCP.<br>");  
+    strcat(HTML_String, "<b>Default for last number is 79, it's also the address of the Webinterface.</b>");
+    strcat(HTML_String, "<table>");
+    set_colgroup(150, 50, 50, 50, 50);
+    strcat(HTML_String, "<tr><td>IP address</td><td><input type = \"number\"  onchange=\"sendVal('/?WiFiIP0='+this.value)\" name = \"WiFiIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.WiFi_myip[0]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?WiFiIP1='+this.value)\" name = \"WiFiIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.WiFi_myip[1]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?WiFiIP2='+this.value)\" name = \"WiFiIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.WiFi_myip[2]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?WiFiIP3='+this.value)\" name = \"WiFiIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.WiFi_myip[3]);
+    strcat(HTML_String, "\"></td></table><br>");
+
+    //IP destination    
+    strcat(HTML_String, "<table>");
+    set_colgroup(250, 300, 150, 0, 0);
+    strcat(HTML_String, "<tr><td colspan=\"2\"><b>IP address of destination</b></td>");    
+    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
+    strcat(HTML_String, "</tr></table><table>");
+    strcat(HTML_String,"Destination's IP address, the first 3 numbers are set by DHCP, or as above.<br>");
+    strcat(HTML_String, "<b>Use 255 to send to every device in network (default).</b> Use IP of your Computer, if you don't have a router and fixed IPs");
+    strcat(HTML_String, "<table>");
+    set_colgroup(150, 50, 50, 50, 50);
+    strcat(HTML_String, "<tr><td>IP address destination</td><td>xxx</td><td>xxx</td><td>xxx<td><input type = \"number\"  onchange=\"sendVal('/?WiFiIPDest='+this.value)\" name = \"WiFiIPDest\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.WiFi_ipDest_ending);
+    strcat(HTML_String, "\"></td></table><br><hr>");
+
+    //---------------------------------------------------------------------------------------------  
+    // Ethernet settings 
+    strcat(HTML_String, "<h2>Ethernet settings</h2>");
+    strcat(HTML_String, "<form>");
+    strcat(HTML_String, "<table>");
+    set_colgroup(150, 400, 150, 0, 0);
+
+    //use DHCP/static IP radio button
+    strcat(HTML_String, "<tr>");
+    strcat(HTML_String, "<td></td><td><input type = \"radio\" onclick=\"sendVal('/?EthStatIP=0')\" name=\"EthStatIP\" id=\"JZ\" value=\"0\"");
+    if (Set.Eth_static_IP == false)strcat(HTML_String, " CHECKED");
+    strcat(HTML_String, "><label for=\"JZ\">use DHCP (default)</label></td>");
+    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
+    strcat(HTML_String, "</tr>");
+
+    strcat(HTML_String, "<tr>");
+    strcat(HTML_String, "<td></td><td><input type = \"radio\" onclick=\"sendVal('/?EthStatIP=1')\" name=\"EthStatIP\" id=\"JZ\" value=\"1\"");
+    if (Set.Eth_static_IP == true)strcat(HTML_String, " CHECKED");
+    strcat(HTML_String, "><label for=\"JZ\">use fixed IP from below</label></td></tr>");
+
+    strcat(HTML_String, "</table><br>");
+
+    //IP
+    strcat(HTML_String, "<b>IP address for Ethernet</b><br>When using DHCP the last number is set as IP from here, the first 3 numbers are set by DHCP.<br>");
+    strcat(HTML_String, "<b>Default for last number is 80.</b>");
+    strcat(HTML_String, "<table>");
+    set_colgroup(150, 50, 50, 50, 50);
+    strcat(HTML_String, "<tr><td>IP address</td><td><input type = \"number\"  onchange=\"sendVal('/?EthIP0='+this.value)\" name = \"EthIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_myip[0]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthIP1='+this.value)\" name = \"EthIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_myip[1]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthIP2='+this.value)\" name = \"EthIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_myip[2]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthIP3='+this.value)\" name = \"EthIP\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_myip[3]);
+    strcat(HTML_String, "\"></td></table><br>");
+
+    //IP destination
+    strcat(HTML_String, "<table>");
+    set_colgroup(250, 300, 150, 0, 0);
+    strcat(HTML_String, "<tr><td colspan=\"2\"><b>IP address of destination</b></td>");
+    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
+    strcat(HTML_String, "</tr></table><table>");
+    strcat(HTML_String, "Destination's IP address, the first 3 numbers are set by DHCP, or as above.<br>");
+    strcat(HTML_String, "<b>Use 255 to send to every device in network (default).</b> Use IP of your Computer, if you don't have a router and fixed IPs");
+    strcat(HTML_String, "<table>");
+    set_colgroup(150, 50, 50, 50, 50);
+    strcat(HTML_String, "<tr><td>IP address destination</td><td>xxx</td><td>xxx</td><td>xxx<td><input type = \"number\"  onchange=\"sendVal('/?EthIPDest='+this.value)\" name = \"EthIPDest\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_ipDest_ending);
+    strcat(HTML_String, "\"></td></table><br>");
+
+    //mac
+    strcat(HTML_String, "<b>mac address of Ethernet hardware</b><br>Type in the mac address of you Ethernet shield.<br>");
+    strcat(HTML_String, "<table>");
+    set_colgroup(150, 50, 50, 50, 50, 50, 50);
+    strcat(HTML_String, "<tr><td>mac address</td><td><input type = \"number\"  onchange=\"sendVal('/?EthMac0='+this.value)\" name = \"EthMac\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_mac[0]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthMac1='+this.value)\" name = \"EthMac\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_mac[1]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthMac2='+this.value)\" name = \"EthMac\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_mac[2]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthMac3='+this.value)\" name = \"EthMac\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_mac[3]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthMac4='+this.value)\" name = \"EthMac\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_mac[4]);
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type = \"number\"  onchange=\"sendVal('/?EthMac5='+this.value)\" name = \"EthMac\" min = \"0\" max = \"255\" step = \"1\" style= \"width:40px\" value = \"");
+    strcati(HTML_String, Set.Eth_mac[5]);
+    strcat(HTML_String, "\"></td></table>");
+
+
+    strcat(HTML_String, "</form>");
+    strcat(HTML_String, "<br><hr>");
+  
     //---------------------------------------------------------------------------------------------
 
     strcat(HTML_String, "<h1>The settings below are mainly for dual antenna setups.<br>Hardware settings are at the end of the page.</h1><br><hr>");
@@ -1355,7 +1519,6 @@ void set_colgroup(int w1, int w2, int w3, int w4, int w5) {
     set_colgroup1(w4);
     set_colgroup1(w5);
     strcat(HTML_String, "</colgroup>");
-
 }
 
 void set_colgroup(int w1, int w2, int w3, int w4, int w5, int w6) {
@@ -1367,7 +1530,17 @@ void set_colgroup(int w1, int w2, int w3, int w4, int w5, int w6) {
     set_colgroup1(w5);
     set_colgroup1(w6);
     strcat(HTML_String, "</colgroup>");
-
+}
+void set_colgroup(int w1, int w2, int w3, int w4, int w5, int w6, int w7) {
+    strcat(HTML_String, "<colgroup>");
+    set_colgroup1(w1);
+    set_colgroup1(w2);
+    set_colgroup1(w3);
+    set_colgroup1(w4);
+    set_colgroup1(w5);
+    set_colgroup1(w6);
+    set_colgroup1(w7);
+    strcat(HTML_String, "</colgroup>");
 }
 //------------------------------------------------------------------------------------------
 void set_colgroup1(int ww) {

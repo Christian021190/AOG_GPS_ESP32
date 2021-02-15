@@ -975,7 +975,7 @@ void make_HTML01() {
     //---------------------------------------------------------------------------------------------  
     // Antenna distance/hight
     strcat(HTML_String, "<h2>Dual Antenna position</h2>");
-    //   strcat(HTML_String, "antennas must be left + right to be able to calculate roll<br>");
+    //   strcat(HTML_String, "antennas must be left + right to be able to calculate rollRelPosNED<br>");
     strcat(HTML_String, "<form>");
     strcat(HTML_String, "<table>");
     set_colgroup(300, 250, 150, 0, 0);
@@ -1118,7 +1118,7 @@ void make_HTML01() {
     strcat(HTML_String, "<br><hr>");
 
     //---------------------------------------------------------------------------------------------  
-    // GPS position correction by roll 
+    // GPS position correction by rollRelPosNED 
     strcat(HTML_String, "<h2>Correct GPS position using roll (dual antenna only)</h2>");
     strcat(HTML_String, "Roll corrected position is send, it's like moving antenna over the ground.<br>");
     strcat(HTML_String, "The left and right movement caused by rocking tractor is eliminated.<br>");

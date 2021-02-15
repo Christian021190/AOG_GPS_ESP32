@@ -209,6 +209,7 @@ void getUBX() {
 			{
 				if (UBXDigit1 == 7) {//lenght
 					UBXLenght1 = UBXPVT1[nextUBXcount1].len + 8;//+2xheader,2xclass,2xlenght,2xchecksum
+					if (Set.CMPS14_present == true) { CMPS14GetNewData = true; }
 					//if (debugmode) { Serial.print("UBXLenght1: "); Serial.println(UBXLenght1); }
 				}
 				else
@@ -244,6 +245,7 @@ void getUBX() {
 							}
 
 							UBXRingCount1 = nextUBXcount1;
+							UBXPVTTime = millis();//debug only
 							UBXLenght1 = 100;
 							if (Set.debugmodeUBX) {
 								Serial.print("got UBX1 PVT lat: "); Serial.print(UBXPVT1[nextUBXcount1].lat);

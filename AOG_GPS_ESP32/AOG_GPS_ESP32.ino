@@ -1,7 +1,7 @@
 //ESP32 programm for UBLOX receivers to send NMEA to AgOpenGPS or other program 
 
-byte vers_nr = 48;
-char VersionTXT[120] = " - 14. Februar 2021 by MTZ8302<br>(Ethernet support, NTRIP client for ESP32, multiple WiFi networks)";
+byte vers_nr = 49;
+char VersionTXT[120] = " - 15. Februar 2021 by MTZ8302<br>(Ethernet support, NTRIP client for ESP32, multiple WiFi networks)";
 
 //works with 1 or 2 receivers
 
@@ -57,6 +57,9 @@ struct set {
     byte LEDWiFi_ON_Level = HIGH;    //HIGH = LED on high, LOW = LED on low
 
     bool CMPS14_present = true;
+    float CMPS14HeadingCorrection = 0.0;
+    float CMPS14RollCorrection = 0.0;
+    int CMPS14_ADDRESS = 0x60;   // Address of CMPS14 shifted right one bit for arduino wire library
 
     //Network---------------------------------------------------------------------------------------------
 #if HardwarePlatform == 0
@@ -126,7 +129,7 @@ struct set {
 
     byte MaxHeadChangPerSec = 30;         // degrees that heading is allowed to change per second
 
-    byte DataTransVia = 7;// 7;                //transfer data via 0 = USB / 7 = WiFi UDP / 8 = WiFi UDP 2x / 10 = Ethernet UDP
+    byte DataTransVia =  7;                //transfer data via 0 = USB / 7 = WiFi UDP / 8 = WiFi UDP 2x / 10 = Ethernet UDP
 
     byte NtripClientBy = 1;               //NTRIP client 0:off /1: listens for AOG NTRIP to UDP (WiFi/Ethernet) or USB serial /2: use ESP32 WiFi NTIRP client
 
@@ -136,7 +139,7 @@ struct set {
     byte sendHDT = 0;                     //1: send NMEA message 0: off
 
 
-    bool debugmode = true;
+    bool debugmode = false;
     bool debugmodeUBX = false;
     bool debugmodeHeading = false;
     bool debugmodeVirtAnt = false;
@@ -164,7 +167,7 @@ IPAddress WiFi_ipDestination, Eth_ipDestination; //set in network.ino
 bool  WiFi_STA_running = false, task_Eth_NTRIP_running = false, WebIORunning = true, WiFi_UDP_running = false;
 char Eth_NTRIP_packetBuffer[512];// buffer for receiving and sending data
 
-//Kalman filter roll
+/*//Kalman filter roll
 double rollK, rollPc, rollG, rollXp, rollZp, rollXe;
 double rollP = 1.0;
 double rollVar = 0.1; // variance, smaller: faster, less filtering
@@ -173,17 +176,17 @@ double rollVarProcess = 0.3;// 0.0005;// 0.0003;  bigger: faster, less filtering
 double headK, headPc, headG, headXp, headZp, headXe;
 double headP = 1.0;
 double headVar = 0.1; // variance, smaller, more faster filtering
-double headVarProcess = 0.1;// 0.001;//  bigger: faster, less filtering// replaced by fast/slow depending on GPS quality
+double headVarProcess = 0.1;// 0.001;//  bigger: faster, less filtering// replaced by fast/slow depending on GPS quality*/
 //Kalman filter heading
 double headVTGK, headVTGPc, headVTGG, headVTGXp, headVTGZp, headVTGXe;
 double headVTGP = 1.0;
 double headVTGVar = 0.1; // variance, smaller, more faster filtering
 double headVTGVarProcess = 0.01;// 0.001;//  bigger: faster, less filtering// replaced by fast/slow depending on GPS quality
-//Kalman filter heading
+/*//Kalman filter heading
 double headMixK, headMixPc, headMixG, headMixXp, headMixZp, headMixXe;
 double headMixP = 1.0;
 double headMixVar = 0.1; // variance, smaller, more faster filtering
-double headMixVarProcess = 0.1;// 0.001;//  bigger: faster, less filtering// replaced by fast/slow depending on GPS quality
+double headMixVarProcess = 0.1;// 0.001;//  bigger: faster, less filtering// replaced by fast/slow depending on GPS quality*/
 //Kalman filter lat
 double latK, latPc, latG, latXp, latZp, latXe;
 double latP = 1.0;
@@ -202,7 +205,7 @@ double VarProcessSlow = 0.001;//  0,004used, when GPS signal is  weak, no roll n
 double VarProcessVerySlow = 0.0001;//0,03  used, when GPS signal is  weak, no roll no heading
 bool filterGPSpos = false;
 
-double HeadingQuotaVTG = 0.5;
+double HeadingQuotaVTG = 0.5, HeadingQuotaCMPS = 0.5;;
 
 #if HardwarePlatform == 0
 
@@ -221,11 +224,11 @@ char RTCM_strm_Buffer[512];         // rtcm Message Buffer
 #endif
 
 //UBX
-byte UBXRingCount1 = 0, UBXRingCount2 = 0, UBXDigit1 = 0, UBXDigit2 = 0, OGIfromUBX = 0;
+byte UBXRingCount1 = 0, UBXRingCount2 = 0, UBXDigit1 = 0, UBXDigit2 = 0, OGIfromUBX = 0, CMPSRingCount = 255;
 short UBXLenght1 = 100, UBXLenght2 = 100;
 constexpr unsigned char UBX_HEADER[] = { 0xB5, 0x62 };//all UBX start with this
 bool isUBXPVT1 = false,  isUBXRelPosNED = false, existsUBXRelPosNED = false;
-
+unsigned long UBXPVTTime = 0;//debug only
 
 double virtLat = 0.0, virtLon = 0.0;//virtual Antenna Position
 
@@ -243,13 +246,17 @@ char cFixQualGGA;
 
 
 //heading + roll
-double HeadingRelPosNED = 0, cosHeadRelPosNED = 1, HeadingVTG = 0, HeadingVTGOld = 0, cosHeadVTG = 1, HeadingMix = 0, cosHeadMix = 1;
+double HeadingRelPosNED = 0, cosHeadRelPosNED = 1, HeadingVTG = 0, HeadingVTGOld = 0, cosHeadVTG = 1, HeadingMix = 0, cosHeadMix = 1, HeadingCMPS = 0;
 double HeadingDiff = 0, HeadingMax = 0, HeadingMin = 0, HeadingMixBak = 0, HeadingQualFactor = 0.5;
 byte noRollCount = 0,  drivDirect = 0;
 constexpr double PI180 = PI / 180;
 bool dualGPSHeadingPresent = false, rollPresent = false, virtAntPosPresent = false, add360ToRelPosNED = false, add360ToVTG = false;
-double roll = 0.0, rollToAOG = 0.0;
+double rollRelPosNED = 0.0, rollToAOG = 0.0;
 byte dualAntNoValueCount = 0, dualAntNoValueMax = 20;// if dual Ant value not valid for xx times, send position without correction/heading/roll
+
+//CMPS14
+bool CMPS14GetNewData = true;
+double CMPS14CorrFactor = 0.0; 
 
 
 // Variables ------------------------------
@@ -327,6 +334,15 @@ struct NAV_RELPOSNED {
 };
 NAV_RELPOSNED UBXRelPosNED[sizeOfUBXArray];
 
+struct CMPS14DataStruc
+{
+    float heading;
+    float roll;
+    unsigned long time;
+};
+CMPS14DataStruc CMPS14Data[sizeOfUBXArray];
+
+
 #if HardwarePlatform == 0
 #include <AsyncUDP.h>
 //#include <HTTP_Method.h>
@@ -369,13 +385,8 @@ TaskHandle_t taskHandle_CMPS14;
 
 void setup()
 {
-    delay(200);
-    delay(50);  
-
-    //set up communication
- // Wire.begin();  
-  //50Khz I2C
-  //TWBR = 144;
+    delay(200);//waiting for stable power
+    delay(50);//
 
     //start serials
     Serial.begin(115200);
@@ -421,14 +432,21 @@ void setup()
     WiFi_handle_connection();
 
 #endif
-/*
+
     if (Set.CMPS14_present) {
-        Wire.begin();
-        delay(500);
-        xTaskCreate(CMPS14_handle, "CMPS14_handling", 3072, NULL, 1, &taskHandle_CMPS14);
-        delay(500);
+        if (Wire.begin()) {
+            CMPSRingCount = 0;
+            delay(500);
+            xTaskCreate(CMPS14_handle, "CMPS14_handling", 3072, NULL, 1, &taskHandle_CMPS14);
+            delay(500);
+        }
+        else {
+            Serial.println("error INIT CMPS14");
+            Serial.println("CMPS14 set inactive");
+            Set.CMPS14_present = false;
+        }
     }
-  */  
+
 }
 
 // MAIN loop  -------------------------------------------------------------------------------------------
@@ -451,14 +469,14 @@ void loop()
         else //only 1 Antenna
         {
             virtAntPosPresent = false;
-            if ((Set.debugmodeHeading) || (Set.debugmodeVirtAnt)) { Serial.println("no dual Antenna values so not virtual Antenna point calc"); }
+            if ((Set.debugmodeHeading) || (Set.debugmodeVirtAnt)) { Serial.println("no dual Antenna values so no virtual Antenna point calc"); }
         }
 
         //filter position: set kalman variables
         //0: no fix 1: GPS only -> filter slow, else filter fast, but filter due to no roll compensation
         if (UBXPVT1[UBXRingCount1].fixType <= 1) { latVarProcess = VarProcessSlow; lonVarProcess = VarProcessSlow; filterGPSpos = true; }
         else { if (!dualGPSHeadingPresent) { latVarProcess = VarProcessFast; lonVarProcess = VarProcessFast; filterGPSpos = true; } }
-        //filterGPSPosition might set false an Kalman variables set, if signal is perfect (in void HeadingRollCalc)
+        //filterGPSPosition might set false and Kalman variables set, if signal is perfect (in void HeadingRollCalc)
 
         if (Set.filterGPSposOnWeakSignal == 0) { filterGPSpos = false; }
 
@@ -553,34 +571,25 @@ void loop()
                 } //gets Ethernet UDP NTRIP and sends to serial 1 
                 if ((newOGI) && (Set.sendOGI == 1)) {
                     Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                    for (byte n = 0; n < OGIdigit; n++) {
-                       // Eth_udpRoof.print(char(OGIBuffer[n]));
-                        Eth_udpRoof.write(char(OGIBuffer[n]));
-                    }
+                    Eth_udpRoof.write(OGIBuffer,OGIdigit);
                     Eth_udpRoof.endPacket();
                     newOGI = false;
                 }
                 if (newGGA) {
                     Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                    for (byte n = 0; n < GGAdigit; n++) {
-                        Eth_udpRoof.print(char(GGABuffer[n]));
-                    }
+                    Eth_udpRoof.write(GGABuffer, GGAdigit);
                     Eth_udpRoof.endPacket();
                     newGGA = false;
                 }
                 if (newVTG) {
                     Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                    for (byte n = 0; n < VTGdigit; n++) {
-                        Eth_udpRoof.print(char(VTGBuffer[n]));
-                    }
+                    Eth_udpRoof.write(VTGBuffer, VTGdigit);
                     Eth_udpRoof.endPacket();
                     newVTG = false;
                 }
                 if (newHDT) {
                     Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                    for (byte n = 0; n < HDTdigit; n++) {
-                        Eth_udpRoof.print(char(HDTBuffer[n]));
-                    }
+                    Eth_udpRoof.write(HDTBuffer, HDTdigit);
                     Eth_udpRoof.endPacket();
                     newHDT = false;
                 }

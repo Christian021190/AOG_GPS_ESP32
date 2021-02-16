@@ -56,7 +56,7 @@ struct set {
     byte LEDWiFi_PIN = 2;      // WiFi Status LED 0 = off
     byte LEDWiFi_ON_Level = HIGH;    //HIGH = LED on high, LOW = LED on low
 
-    bool CMPS14_present = true;
+    bool CMPS14_present = false;
     float CMPS14HeadingCorrection = 0.0;
     float CMPS14RollCorrection = 0.0;
     int CMPS14_ADDRESS = 0x60;   // Address of CMPS14 shifted right one bit for arduino wire library

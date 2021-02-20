@@ -1,7 +1,5 @@
-
-#if HardwarePlatform == 0
 // Wifi variables & definitions
-char HTML_String[50000];
+char HTML_String[55000];
 int action;
 long temLong = 0;
 double temDoub = 0;
@@ -14,7 +12,7 @@ int temInt = 0;
 //-------------------------------------------------------------------------------------------------
 //10. Mai 2020
 
-void WiFi_StartServer() {
+void WiFiStartServer() {
 
     //return index page which is stored in serverIndex 
     WiFi_Server.on("/", HTTP_GET, []() {
@@ -209,7 +207,7 @@ void process_Request()
         if (WiFi_Server.argName(n) == "EthIP3") {
             temInt = WiFi_Server.arg(n).toInt();
             Set.Eth_myip[3] = byte(temInt);
-        }   
+        }
         if (WiFi_Server.argName(n) == "EthStatIP") {
             temInt = WiFi_Server.arg(n).toInt();
             if (temInt == 1) { Set.Eth_static_IP = true; }
@@ -242,8 +240,8 @@ void process_Request()
         if (WiFi_Server.argName(n) == "EthMac5") {
             temInt = WiFi_Server.arg(n).toInt();
             Set.Eth_mac[5] = byte(temInt);
-        }        
-        
+        }
+
         if (WiFi_Server.argName(n) == "GPSPosCorrByRoll") {
             if (WiFi_Server.arg(n) == "true") { Set.GPSPosCorrByRoll = 1; }
             else { Set.GPSPosCorrByRoll = 0; }
@@ -288,13 +286,13 @@ void process_Request()
         }
         if (WiFi_Server.argName(n) == "RollAngleCorr") {
             temDoub = WiFi_Server.arg(n).toDouble();
-            if ((temDoub < 360) && (temDoub >= 0)) { Set.rollAngleCorrection = temDoub; }
+            if ((temDoub < 45) && (temDoub >= -45)) { Set.DualRollAngleCorrection = temDoub; }
         }
         if (WiFi_Server.argName(n) == "NtripHost") {
             for (int i = 0; i < 40; i++) Set.NtripHost[i] = 0x00;
             temInt = WiFi_Server.arg(n).length() + 1;
             WiFi_Server.arg(n).toCharArray(Set.NtripHost, temInt);
-        }        
+        }
         if (WiFi_Server.argName(n) == "NtripMountpoint") {
             for (int i = 0; i < 40; i++) Set.NtripMountpoint[i] = 0x00;
             temInt = WiFi_Server.arg(n).length() + 1;
@@ -357,7 +355,7 @@ void process_Request()
                         WiFi_UDP_running = true;
                     }
                     else {
-                    //Ethernet
+                        //Ethernet
                         if (WiFi_UDP_running) { WiFi_udpNtrip.close(); WiFi_UDP_running = false; }
                     }
                 }
@@ -400,7 +398,7 @@ void process_Request()
             if ((temLong <= 20) && (temLong >= 0)) { Set.DataTransVia = byte(temLong); }
             if (Set.DataTransVia == 10) {
                 if (Eth_connect_step == 255) {
-                    Eth_connect_step = 10;        
+                    Eth_connect_step = 10;
                     xTaskCreatePinnedToCore(Eth_handle_connection, "Core1EthConnectHandle", 3072, NULL, 1, &taskHandle_Eth_connect, 1);
                     delay(500);
                 }
@@ -434,6 +432,19 @@ void process_Request()
                     }
                 }
             }
+        }
+
+        if (WiFi_Server.argName(n) == "CMPSpres") {
+            if (WiFi_Server.arg(n) == "true") { Set.CMPS14_present = true; }
+            else { Set.CMPS14_present = false; }
+        }
+        if (WiFi_Server.argName(n) == "RollAngleCorrCMPS") {
+            temDoub = WiFi_Server.arg(n).toDouble();
+            if ((temDoub < 45) && (temDoub >= -45)) { Set.CMPS14RollCorrection = temDoub; }
+        }
+        if (WiFi_Server.argName(n) == "HeadAngleCorrCMPS") {
+            temDoub = WiFi_Server.arg(n).toDouble();
+            if ((temDoub < 360) && (temDoub >= 0)) { Set.CMPS14HeadingCorrection = temDoub; }
         }
 
         if (WiFi_Server.argName(n) == "debugmode") {
@@ -970,7 +981,7 @@ void make_HTML01() {
   
     //---------------------------------------------------------------------------------------------
 
-    strcat(HTML_String, "<h1>The settings below are mainly for dual antenna setups.<br>Hardware settings are at the end of the page.</h1><br><hr>");
+    strcat(HTML_String, "<h1>Dual GPS antenna setup</h1><hr>");
 
     //---------------------------------------------------------------------------------------------  
     // Antenna distance/hight
@@ -1030,7 +1041,7 @@ void make_HTML01() {
 
     //---------------------------------------------------------------------------------------------  
     // heading angle correction 
-    strcat(HTML_String, "<h2>Dual heading angle correction/max heading change</h2>");
+    strcat(HTML_String, "<h2>Dual antenna heading angle correction/max heading change</h2>");
     
     strcat(HTML_String, "<form>");
     strcat(HTML_String, "<table>");
@@ -1068,6 +1079,14 @@ void make_HTML01() {
     }
     strcat(HTML_String, "</b></font></divbox></td>");
     strcat(HTML_String, "<tr> <td colspan=\"3\">&nbsp;</td> </tr>");
+    strcat(HTML_String, "<tr><td>Heading from CMPS</td><td><divbox align=\"right\"><font size=\"+1\"><b>");
+    if (HeadingCMPScorr < 10) { strcatf(HTML_String, HeadingCMPScorr, 3, 1); }
+    else {
+        if (HeadingCMPScorr < 100) { strcatf(HTML_String, HeadingCMPScorr, 4, 1); }
+        else { strcatf(HTML_String, HeadingCMPScorr, 5, 1); }
+    }
+    strcat(HTML_String, "</b></font></divbox></td>");
+    strcat(HTML_String, "<tr> <td colspan=\"3\">&nbsp;</td> </tr>");
     strcat(HTML_String, "<tr><td>Heading Mix</td><td><divbox align=\"right\"><font size=\"+1\"><b>");
     if (HeadingMix < 10) { strcatf(HTML_String, HeadingMix, 3, 1); }
     else {
@@ -1099,7 +1118,7 @@ void make_HTML01() {
 
     //---------------------------------------------------------------------------------------------  
     // Roll angle correction 
-    strcat(HTML_String, "<h2>Roll angle correction</h2>");
+    strcat(HTML_String, "<h2>Roll angle correction for dual antenna</h2>");
     strcat(HTML_String, "Antennas must be left + right to be able to calculate roll.<br><br>");
     strcat(HTML_String, "<form>");
     strcat(HTML_String, "<table>");
@@ -1108,32 +1127,8 @@ void make_HTML01() {
     strcat(HTML_String, "<tr>");
     strcat(HTML_String, "<td></td><td><input type = \"number\" onchange=\"sendVal('/?RollAngleCorr='+this.value)\" name = \"RollAngleCorr\" min = \" - 45\" max = \"45\" step = \"0.1\" style= \"width:100px\" value = \"");// placeholder = \"");
 
-    strcatf(HTML_String, Set.rollAngleCorrection, 3, 1);
+    strcatf(HTML_String, Set.DualRollAngleCorrection, 3, 1);
     strcat(HTML_String, "\"></td>");
-    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
-    strcat(HTML_String, "</tr>");
-
-    strcat(HTML_String, "</table>");
-    strcat(HTML_String, "</form>");
-    strcat(HTML_String, "<br><hr>");
-
-    //---------------------------------------------------------------------------------------------  
-    // GPS position correction by rollRelPosNED 
-    strcat(HTML_String, "<h2>Correct GPS position using roll (dual antenna only)</h2>");
-    strcat(HTML_String, "Roll corrected position is send, it's like moving antenna over the ground.<br>");
-    strcat(HTML_String, "The left and right movement caused by rocking tractor is eliminated.<br>");
-    strcat(HTML_String, "Roll transfered to AOG is more filtered for sidehill draft gain.<br>");
-    strcat(HTML_String, "Antennas must be left + right to be able to calculate roll.<br><br>");
-    strcat(HTML_String, "<form>");
-    strcat(HTML_String, "<table>");
-    set_colgroup(300, 250, 150, 0, 0);
-
-    //checkbox
-    strcat(HTML_String, "<tr><td>(default: ON)</td><td><input type=\"checkbox\" onclick=\"sendVal('/?GPSPosCorrByRoll='+this.checked)\" name=\"GPSPosCorrByRoll\" id = \"Part\" value = \"1\" ");
-    if (Set.GPSPosCorrByRoll == 1) strcat(HTML_String, "checked ");
-    strcat(HTML_String, "> ");
-    strcat(HTML_String, "<label for =\"Part\"> <b>send corrected position</b></label>");
-    strcat(HTML_String, "</td>");    
     strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
     strcat(HTML_String, "</tr>");
 
@@ -1191,6 +1186,94 @@ void make_HTML01() {
     strcat(HTML_String, "> ");
     strcat(HTML_String, "<label for =\"Part\"> <b>Filter GPS postition</b></label>");
     strcat(HTML_String, "</td>");
+    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
+    strcat(HTML_String, "</tr>");
+
+    strcat(HTML_String, "</table>");
+    strcat(HTML_String, "</form>");
+    strcat(HTML_String, "<br><hr>");
+
+    //---------------------------------------------------------------------------------------------
+
+    strcat(HTML_String, "<h1>IMU setup</h1><hr>");
+
+    //---------------------------------------------------------------------------------------------  
+    // CMPS IMU present 
+    strcat(HTML_String, "<h2>CMPS14 IMU installed</h2>");
+    strcat(HTML_String, "For better position signal, a CMPS14 IMU can be installed.<br>");
+    strcat(HTML_String, "With single antenna it can correct position by removing roll.<br>");
+    strcat(HTML_String, "With dual antenna it helps in bad GPS signal conditions.<br><br>");
+    strcat(HTML_String, "<form>");
+    strcat(HTML_String, "<table>");
+    set_colgroup(350, 200, 150, 0, 0);
+
+    //checkbox
+    strcat(HTML_String, "<tr><td>CMPS14 installed</td><td><input type=\"checkbox\" onclick=\"sendVal('/?CMPSpres='+this.checked)\" name=\"CMPSpres\" id = \"Part\" value = \"1\" ");
+    if (Set.CMPS14_present) strcat(HTML_String, "checked ");
+    strcat(HTML_String, "> ");
+    //strcat(HTML_String, "<label for =\"Part\"> <b>hardware needed and connected to I2C bus.</b></label>");
+    strcat(HTML_String, "</td>");
+    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
+    strcat(HTML_String, "</tr>");
+
+    strcat(HTML_String, "</table></form><br>");
+
+    // heading angle correction 
+
+    strcat(HTML_String, "In combination with dual GPS, these settings will be done by the ESP when driving in good signal conditions<br><br>");
+    strcat(HTML_String, "<b>CMPS14 heading and roll angle correction</b>");  
+    strcat(HTML_String, "<form>");
+    strcat(HTML_String, "<table>");
+    set_colgroup(350, 200, 150, 0, 0);
+
+    strcat(HTML_String, "<tr><td>heading angle correction</td><td><input type = \"number\" onchange=\"sendVal('/?HeadAngleCorrCMPS='+this.value)\" name = \"HeadAngleCorrCMPS\" min = \" 0\" max = \"360\" step = \"0.1\" style= \"width:100px\" value = \"");// placeholder = \"");
+    if (Set.CMPS14HeadingCorrection < 10) { strcatf(HTML_String, Set.CMPS14HeadingCorrection, 3, 1); }
+    else {
+        if (Set.CMPS14HeadingCorrection < 100) { strcatf(HTML_String, Set.CMPS14HeadingCorrection, 4, 1); }
+        else { strcatf(HTML_String, Set.CMPS14HeadingCorrection, 5, 1); }
+    }
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
+    strcat(HTML_String, "</tr>");
+
+    strcat(HTML_String, "<tr> <td colspan=\"3\">&nbsp;</td> </tr>");
+
+    strcat(HTML_String, "<tr>");
+    strcat(HTML_String, "<td>roll angle correction</td><td><input type = \"number\" onchange=\"sendVal('/?RollAngleCorrCMPS='+this.value)\" name = \"RollAngleCorrCMPS\" min = \" - 45\" max = \"45\" step = \"0.1\" style= \"width:100px\" value = \"");// placeholder = \"");
+
+    if (Set.CMPS14RollCorrection < 10) { strcatf(HTML_String, Set.CMPS14RollCorrection, 3, 1); }
+    else { strcatf(HTML_String, Set.CMPS14RollCorrection, 4, 1); }
+    strcat(HTML_String, "\"></td>");
+    strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
+    strcat(HTML_String, "</tr>");
+
+    strcat(HTML_String, "</table>");
+    strcat(HTML_String, "</form>");
+    strcat(HTML_String, "<br><hr>");
+
+
+    //---------------------------------------------------------------------------------------------
+
+    strcat(HTML_String, "<h1>Output data setup</h1><hr>");
+
+    //---------------------------------------------------------------------------------------------  
+    // GPS position correction by rollRelPosNED 
+    strcat(HTML_String, "<h2>Correct GPS position using roll (dual antenna or CMPS)</h2>");
+    strcat(HTML_String, "Roll corrected position is send, it's like moving antenna over the ground.<br>");
+    strcat(HTML_String, "The left and right movement caused by rocking tractor is eliminated.<br>");
+    strcat(HTML_String, "Roll transfered to AOG is more filtered for sidehill draft gain.<br>");
+    strcat(HTML_String, "Antennas must be left + right to be able to calculate roll.<br>");
+    strcat(HTML_String, "With single antenna a CMPS14 IMU is needed.<br><br>");
+    strcat(HTML_String, "<form>");
+    strcat(HTML_String, "<table>");
+    set_colgroup(300, 250, 150, 0, 0);
+
+    //checkbox
+    strcat(HTML_String, "<tr><td>(default: ON)</td><td><input type=\"checkbox\" onclick=\"sendVal('/?GPSPosCorrByRoll='+this.checked)\" name=\"GPSPosCorrByRoll\" id = \"Part\" value = \"1\" ");
+    if (Set.GPSPosCorrByRoll == 1) strcat(HTML_String, "checked ");
+    strcat(HTML_String, "> ");
+    strcat(HTML_String, "<label for =\"Part\"> <b>send corrected position</b></label>");
+    strcat(HTML_String, "</td>");    
     strcat(HTML_String, "<td><input type= \"button\" onclick= \"sendVal('/?Save=true')\" style= \"width:120px\" value=\"Save\"></button></td>");
     strcat(HTML_String, "</tr>");
 
@@ -1564,4 +1647,3 @@ void strcati(char* tx, int i) {
     strcat(tx, tmp);
 }
 
-#endif

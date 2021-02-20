@@ -1,4 +1,3 @@
-#if HardwarePlatform == 0
 // WIFI handling 14. Feb 2021 for ESP32  -------------------------------------------
 
 void WiFi_handle_connection() {
@@ -259,7 +258,7 @@ void WiFi_handle_connection() {
                 //Webserver start
             case 100:
                 //start Server for Webinterface
-                WiFi_StartServer();
+                WiFiStartServer();
                 WiFi_connect_step++;
                 WiFi_connect_timer = now;
                 break;
@@ -418,15 +417,15 @@ void WiFi_Start_AP() {
     WiFi_ipDestination[3] = 255;
     my_WiFi_Mode = WIFI_AP;
 }
-#endif
+
 
 //=================================================================================================
-//Ethernet
+//Ethernet handling for ESP32 14. Feb 2021
 //-------------------------------------------------------------------------------------------------
 void Eth_handle_connection(void* pvParameters) {
     unsigned long Eth_connect_timer = 0, now = 0;
     if (Set.timeoutRouter < 20) { if (WiFi_connect_step != 0) { vTaskDelay(25000); } }//waiting for WiFi to start first
-    Serial.println("started new task on core 0: Ethernet handle connection");
+    if (Set.debugmode) { Serial.println("started new task on core 0: Ethernet handle connection"); }
     for (;;) { // MAIN LOOP
         now = millis();
         if (Set.debugmode) { Serial.print("Ethernet connection step: "); Serial.println(Eth_connect_step); }

@@ -1,5 +1,4 @@
-#if HardwarePlatform == 0
-
+// Ethernet NTRIP task code, NTRIP data comming from AgIO -----------------------------------------
 
 void Eth_NTRIP_Code(void* pvParameters) {
     Serial.println("started new task on core 0: Ethernet NTRIP");
@@ -319,4 +318,3 @@ void setAuthorization(const char* user, const char* password)
        }
 }
 
-#endif

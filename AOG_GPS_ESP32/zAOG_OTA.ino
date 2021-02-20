@@ -2,8 +2,6 @@
 // Server Index Page for OTA update
 //-------------------------------------------------------------------------------------------------
 
-#if HardwarePlatform == 0
-
 const char* serverIndex =
 "<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></script>"
 "<head>"
@@ -52,4 +50,3 @@ const char* serverIndex =
 "});"
 "</script>";
 
-#endif

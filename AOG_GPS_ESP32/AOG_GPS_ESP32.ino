@@ -1,9 +1,9 @@
 //ESP32 programm for UBLOX receivers to send NMEA to AgOpenGPS or other program 
 
-byte vers_nr = 49;
-char VersionTXT[120] = " - 15. Februar 2021 by MTZ8302<br>(Ethernet support, NTRIP client for ESP32, multiple WiFi networks)";
+byte vers_nr = 50;
+char VersionTXT[120] = " - 20. Februar 2021 by MTZ8302<br>(CMPS14 and Ethernet support, NTRIP client for ESP32, multiple WiFi networks)";
 
-//works with 1 or 2 receivers
+//works with 1 or 2 receivers: if you only have one, connect it to right PVT side PINs 27+16
 
 //1 receiver to send position from UBXPVT message to ESP32
 //2 receivers to get position, roll and heading from UBXPVT + UBXRelPosNED via UART to ESP32
@@ -28,11 +28,6 @@ char VersionTXT[120] = " - 15. Februar 2021 by MTZ8302<br>(Ethernet support, NTR
 //So if changing settings set EEPROM_clear = true; (line ~109) - flash - boot - reset to EEPROM_clear = false - flash again to keep them as defauls
 
 
-
-
-
-#define HardwarePlatform 0      //0 = runs on ESP32, 1 = runs on Arduino Mega
-
 struct set {
     //connection plan:
     // ESP32--- Right F9P GPS pos --- Left F9P Heading-----Sentences
@@ -41,28 +36,31 @@ struct set {
     //  RX2-25-----------------------------TX1----------UBX-RelPosNED out (=position relative to other Antenna)
     //  TX2-17-----------------------------RX1----------
     //               TX2-------------------RX2----------RTCM 1077+1087+1097+1127+1230+4072.0+4072.1 (activate in right F9P = NTRIP for relative positioning)
+    //               Attention: on Ardusimple boards the pint RX2 and TX2 is flipped!!!! RX2 print means TX2 function. Workaround: simply connect both RX2 TX2 cross wired
 
     // IO pins ESP32 side ----------------------------------------------------------------------------
-    byte RX1 = 27;                    //right F9P TX1 GPS pos
-    byte TX1 = 16;                    //right F9P RX1 GPS pos
+    byte RX1 = 27;                    //right F9P TX1 GPS pos (or only one F9P)
+    byte TX1 = 16;                    //right F9P RX1 GPS pos (or only one F9P)
 
     byte RX2 = 25;                    //left F9P TX1 Heading
     byte TX2 = 17;                    //left F9P RX1 Heading
 
     byte Eth_CS_PIN = 5;              //CS PIN with SPI Ethernet hardware  SPI config: MOSI 23 / MISO 19 / CLK18 / CS5
 
+    uint8_t SDA = 21;			      //I2C Pins for CMPS14
+    uint8_t SCL = 22;
+
     byte Button_WiFi_rescan_PIN = 4;  //Button to rescan/reconnect WiFi networks / push to GND
 
     byte LEDWiFi_PIN = 2;      // WiFi Status LED 0 = off
     byte LEDWiFi_ON_Level = HIGH;    //HIGH = LED on high, LOW = LED on low
 
-    bool CMPS14_present = false;
-    float CMPS14HeadingCorrection = 0.0;
-    float CMPS14RollCorrection = 0.0;
+    bool CMPS14_present = true;
+    float CMPS14HeadingCorrection = 123.4;
+    float CMPS14RollCorrection = -8.2;
     int CMPS14_ADDRESS = 0x60;   // Address of CMPS14 shifted right one bit for arduino wire library
 
     //Network---------------------------------------------------------------------------------------------
-#if HardwarePlatform == 0
     //tractors WiFi or mobile hotspots
     char ssid1[24] = "Fendt_209V";           // WiFi network Client name
     char password1[24] = "";                 // WiFi network password//Accesspoint name and password
@@ -103,7 +101,7 @@ struct set {
 
     //Ethernet
     byte Eth_myip[4] = { 192, 168, 1, 80 };     // Roofcontrol module 
-    byte Eth_ipDest_ending = 255;//ending of IP address to send UDP data to
+    byte Eth_ipDest_ending = 100;//ending of IP address to send UDP data to
     byte Eth_mac[6] = { 0x90,0xA2,0xDA,0x10,0xB3,0x1B };
     bool Eth_static_IP = false;					// false = use DHPC and set last number to 80 (x.x.x.80) / true = use IP as set above
 
@@ -111,7 +109,6 @@ struct set {
     unsigned int PortFromAOG = 8888;            //port to listen for AOG
     unsigned int AOGNtripPort = 2233;       //port NTRIP data from AOG comes in
     unsigned int PortDestination = 9999;    //Port of AOG that listens
-#endif
 
     //Antennas position
     double AntDist = 74.0;                //cm distance between Antennas
@@ -125,7 +122,7 @@ struct set {
     byte filterGPSposOnWeakSignal = 1;    //filter GPS Position on weak GPS signal
 
     byte GPSPosCorrByRoll = 1;            // 0 = off, 1 = correction of position by roll (AntHight must be > 0)
-    double rollAngleCorrection = 0.0;
+    double DualRollAngleCorrection = 0.0;
 
     byte MaxHeadChangPerSec = 30;         // degrees that heading is allowed to change per second
 
@@ -156,16 +153,64 @@ bool EEPROM_clear = false;  //set to true when changing settings to write them a
 // WiFistatus LED 
 // blink times: searching WIFI: blinking 4x faster; connected: blinking as times set; data available: light on; no data for 2 seconds: blinking
 unsigned int LED_WIFI_time = 0;
-unsigned int LED_WIFI_pulse = 2000;   //light on in ms 
-unsigned int LED_WIFI_pause = 1500;   //light off in ms
+unsigned int LED_WIFI_pulse = 1000;   //light on in ms 
+unsigned int LED_WIFI_pause = 700;   //light off in ms
 boolean LED_WIFI_ON = false;
 
+
 //WIFI+Ethernet
-unsigned long NtripDataTime = 0, now = 0, WebIOTimeOut = 0, WiFi_connect_timer = 0, WiFi_network_search_timeout = 0;//WiFi_lost_time = 0,
+unsigned long now = 0, NtripDataTime = 0, NtripDataMsgTime = 0, WebIOTimeOut = 0, WiFi_connect_timer = 0, WiFi_network_search_timeout = 0;//WiFi_lost_time = 0,
 byte Eth_connect_step, WiFi_connect_step = 10, WiFi_STA_connect_call_nr = 1, WiFi_netw_nr = 0, my_WiFi_Mode = 0;   // WIFI_STA = 1 = Workstation  WIFI_AP = 2  = Accesspoint
 IPAddress WiFi_ipDestination, Eth_ipDestination; //set in network.ino
-bool  WiFi_STA_running = false, task_Eth_NTRIP_running = false, WebIORunning = true, WiFi_UDP_running = false;
+bool  task_Eth_NTRIP_running = false, WebIORunning = true, WiFi_UDP_running = false;
 char Eth_NTRIP_packetBuffer[512];// buffer for receiving and sending data
+
+//NTRIP
+unsigned long lifesign, NTRIP_GGA_send_lastTime; 
+int cnt;
+byte Ntrip_restart = 1; //set 1 to start NTRIP client the first time
+bool task_NTRIP_Client_running = false;
+String _userAgent = "NTRIP ESP32NTRIPClient";
+String _base64Authorization;
+String _accept = "*/*";
+char RTCM_strm_Buffer[512];         // rtcm Message Buffer
+
+
+//UBX
+byte UBXRingCount1 = 0, UBXRingCount2 = 0, UBXDigit1 = 0, UBXDigit2 = 0, OGIfromUBX = 0, CMPSRingCount = 255;
+short UBXLenght1 = 100, UBXLenght2 = 100;
+constexpr unsigned char UBX_HEADER[] = { 0xB5, 0x62 };//all UBX start with this
+bool isUBXPVT1 = false,  isUBXRelPosNED = false, existsUBXRelPosNED = false;
+unsigned long UBXPVTTime = 0;//debug only
+
+double virtLat = 0.0, virtLon = 0.0;//virtual Antenna Position
+
+//NMEA
+byte OGIBuffer[90], HDTBuffer[20], VTGBuffer[50], GGABuffer[80];
+bool newOGI = false, newHDT = false, newGGA = false, newVTG = false;
+byte OGIdigit = 0, GGAdigit = 0, VTGdigit = 0, HDTdigit = 0;
+
+// ai, 07.10.2020: use the GGA Message to determine Fix-Quality
+bool bNMEAstarted = false, bGGAexists = false;
+String sNMEA;
+int i, iPos;
+char cFixQualGGA;
+// END ai, 07.10.2020: use the GGA Message to determine Fix-Quality
+
+
+//heading + roll
+double HeadingRelPosNED = 0, cosHeadRelPosNED = 1, HeadingVTG = 0, HeadingVTGOld = 0, cosHeadVTG = 1, HeadingMix = 0, cosHeadMix = 1;
+double HeadingCMPS = 0, HeadingCMPScorr = 0;
+double HeadingDiff = 0, HeadingMax = 0, HeadingMin = 0, HeadingMixBak = 0, HeadingQualFactor = 0.5;
+byte noRollCount = 0,  drivDirect = 0;
+constexpr double PI180 = PI / 180;
+bool dualGPSHeadingPresent = false, rollPresent = false, virtAntPosPresent = false, add360ToRelPosNED = false, add360ToVTG = false;
+double rollRelPosNED = 0.0, rollToAOG = 0.0, rollCMPS = 0;
+byte dualAntNoValueCount = 0, dualAntNoValueMax = 20;// if dual Ant value not valid for xx times, send position without correction/heading/roll
+
+//CMPS14
+bool CMPS14GetNewData = true;
+double CMPS14CorrFactor = 0.0; 
 
 /*//Kalman filter roll
 double rollK, rollPc, rollG, rollXp, rollZp, rollXe;
@@ -206,58 +251,6 @@ double VarProcessVerySlow = 0.0001;//0,03  used, when GPS signal is  weak, no ro
 bool filterGPSpos = false;
 
 double HeadingQuotaVTG = 0.5, HeadingQuotaCMPS = 0.5;;
-
-#if HardwarePlatform == 0
-
-
-//NTRIP
-unsigned long lifesign, NTRIP_GGA_send_lastTime; 
-int cnt;
-byte Ntrip_restart = 1; //set 1 to start NTRIP client the first time
-bool task_NTRIP_Client_running = false;
-String _userAgent = "NTRIP ESP32NTRIPClient";
-String _base64Authorization;
-String _accept = "*/*";
-char RTCM_strm_Buffer[512];         // rtcm Message Buffer
-
-
-#endif
-
-//UBX
-byte UBXRingCount1 = 0, UBXRingCount2 = 0, UBXDigit1 = 0, UBXDigit2 = 0, OGIfromUBX = 0, CMPSRingCount = 255;
-short UBXLenght1 = 100, UBXLenght2 = 100;
-constexpr unsigned char UBX_HEADER[] = { 0xB5, 0x62 };//all UBX start with this
-bool isUBXPVT1 = false,  isUBXRelPosNED = false, existsUBXRelPosNED = false;
-unsigned long UBXPVTTime = 0;//debug only
-
-double virtLat = 0.0, virtLon = 0.0;//virtual Antenna Position
-
-//NMEA
-byte OGIBuffer[90], HDTBuffer[20], VTGBuffer[50], GGABuffer[80];
-bool newOGI = false, newHDT = false, newGGA = false, newVTG = false;
-byte OGIdigit = 0, GGAdigit = 0, VTGdigit = 0, HDTdigit = 0;
-
-// ai, 07.10.2020: use the GGA Message to determine Fix-Quality
-bool bNMEAstarted = false, bGGAexists = false;
-String sNMEA;
-int i, iPos;
-char cFixQualGGA;
-// END ai, 07.10.2020: use the GGA Message to determine Fix-Quality
-
-
-//heading + roll
-double HeadingRelPosNED = 0, cosHeadRelPosNED = 1, HeadingVTG = 0, HeadingVTGOld = 0, cosHeadVTG = 1, HeadingMix = 0, cosHeadMix = 1, HeadingCMPS = 0;
-double HeadingDiff = 0, HeadingMax = 0, HeadingMin = 0, HeadingMixBak = 0, HeadingQualFactor = 0.5;
-byte noRollCount = 0,  drivDirect = 0;
-constexpr double PI180 = PI / 180;
-bool dualGPSHeadingPresent = false, rollPresent = false, virtAntPosPresent = false, add360ToRelPosNED = false, add360ToVTG = false;
-double rollRelPosNED = 0.0, rollToAOG = 0.0;
-byte dualAntNoValueCount = 0, dualAntNoValueMax = 20;// if dual Ant value not valid for xx times, send position without correction/heading/roll
-
-//CMPS14
-bool CMPS14GetNewData = true;
-double CMPS14CorrFactor = 0.0; 
-
 
 // Variables ------------------------------
 struct NAV_PVT {
@@ -333,17 +326,15 @@ struct NAV_RELPOSNED {
     unsigned char CK1;
 };
 NAV_RELPOSNED UBXRelPosNED[sizeOfUBXArray];
-
+/*
 struct CMPS14DataStruc
 {
     float heading;
     float roll;
     unsigned long time;
 };
-CMPS14DataStruc CMPS14Data[sizeOfUBXArray];
+CMPS14DataStruc CMPS14Data[sizeOfUBXArray];*/
 
-
-#if HardwarePlatform == 0
 #include <AsyncUDP.h>
 //#include <HTTP_Method.h>
 #include <WiFiClient.h>
@@ -358,6 +349,7 @@ CMPS14DataStruc CMPS14Data[sizeOfUBXArray];
 #include <base64.h>
 #include "zAOG_ESP32Ping.h"
 #include "zAOG_ping.h"
+#include <Wire.h>
 
 //instances----------------------------------------------------------------------------------------
 AsyncUDP WiFi_udpRoof;
@@ -372,14 +364,8 @@ WiFiClient WiFi_Ntrip_cl;
 TaskHandle_t taskHandle_WiFi_NTRIP;
 TaskHandle_t taskHandle_Eth_connect;
 TaskHandle_t taskHandle_Eth_NTRIP;
-
-#endif
 TaskHandle_t taskHandle_CMPS14;
 
-
-
-
-#include <Wire.h>
 
 // SETUP ------------------------------------------------------------------------------------------
 
@@ -391,36 +377,25 @@ void setup()
     //start serials
     Serial.begin(115200);
     delay(50);
-#if HardwarePlatform == 0
     Serial1.begin(115200, SERIAL_8N1, Set.RX1, Set.TX1);
     delay(10);
     Serial2.begin(115200, SERIAL_8N1, Set.RX2, Set.TX2);
     delay(10);
-#endif
-#if HardwarePlatform == 1
-    Serial1.begin(115200);
-    delay(10);
-    Serial2.begin(115200);
-    delay(10);
-#endif
     Serial.println();//new line
 
+#if useLED_BUILTIN
+    pinMode(LED_BUILTIN, OUTPUT);
+#endif
     if (Set.LEDWiFi_PIN != 255) { pinMode(Set.LEDWiFi_PIN, OUTPUT); }
     pinMode(Set.Button_WiFi_rescan_PIN, INPUT_PULLUP);
 
-#if HardwarePlatform == 1
-    Set.DataTransVia = 0;//set data via USB
-#endif
-
-
-#if HardwarePlatform == 0
     restoreEEprom();
     delay(60);
 
     //start Ethernet
     if (Set.DataTransVia == 10) {
         Eth_connect_step = 10;
-        xTaskCreatePinnedToCore(Eth_handle_connection, "Core1EthConnectHandle", 3072, NULL, 1, &taskHandle_Eth_connect, 1);
+        xTaskCreate(Eth_handle_connection, "Core1EthConnectHandle", 3072, NULL, 1, &taskHandle_Eth_connect);
         delay(500);
     }
     else { Eth_connect_step = 255; }
@@ -431,22 +406,15 @@ void setup()
     WiFi_UDP_running = false;
     WiFi_handle_connection();
 
-#endif
-
+    //init CMPS
     if (Set.CMPS14_present) {
-        if (Wire.begin()) {
-            CMPSRingCount = 0;
-            delay(500);
-            xTaskCreate(CMPS14_handle, "CMPS14_handling", 3072, NULL, 1, &taskHandle_CMPS14);
-            delay(500);
-        }
-        else {
-            Serial.println("error INIT CMPS14");
-            Serial.println("CMPS14 set inactive");
+        if (!Wire.begin(Set.SDA, Set.SCL, 400000)) {
+            Serial.print("error INIT CMPS14 at I2C address: 0x");
+            Serial.println(Set.CMPS14_ADDRESS);
             Set.CMPS14_present = false;
         }
     }
-
+    NtripDataTime = millis();
 }
 
 // MAIN loop  -------------------------------------------------------------------------------------------
@@ -454,6 +422,12 @@ void setup()
 void loop()
 {
     getUBX();//read serials    
+
+    if (CMPS14GetNewData) {
+        readCMPS();
+        HeadingCMPScorr = HeadingCMPS + Set.CMPS14HeadingCorrection;
+        if (HeadingCMPScorr > 360) { HeadingCMPScorr -= 360; }
+    }
 
     if (UBXRingCount1 != OGIfromUBX)//new UXB exists
     {//Serial.println("new UBX to process");
@@ -514,8 +488,6 @@ void loop()
             newGGA = false;
         }
     }
-
-#if HardwarePlatform == 0
     else {
         //use WiFi?
         if (Set.DataTransVia < 10) {
@@ -571,7 +543,7 @@ void loop()
                 } //gets Ethernet UDP NTRIP and sends to serial 1 
                 if ((newOGI) && (Set.sendOGI == 1)) {
                     Eth_udpRoof.beginPacket(Eth_ipDestination, Set.PortDestination);
-                    Eth_udpRoof.write(OGIBuffer,OGIdigit);
+                    Eth_udpRoof.write(OGIBuffer, OGIdigit);
                     Eth_udpRoof.endPacket();
                     newOGI = false;
                 }
@@ -625,23 +597,22 @@ void loop()
     if (Set.NtripClientBy > 0) {
         if (now > (NtripDataTime + 30000))
         {
-            NtripDataTime = millis();
-            if (Set.NtripClientBy == 2) { Serial.println("no NTRIP data from ESP32 NTRIP client for more than 30s"); }
-            else {
-                Serial.print("no NTRIP for more than 30s from ");
-                if (Set.DataTransVia < 5) { Serial.println("USB"); }
-                else
-                    if (Set.DataTransVia < 10) { Serial.println("WiFi"); }
+            WiFi_LED_blink(0);
+            if (now > NtripDataMsgTime + 30000) {
+                NtripDataMsgTime = millis();
+                if (Set.NtripClientBy == 2) { Serial.println("no NTRIP data from ESP32 NTRIP client for more than 30s"); }
+                else {
+                    Serial.print("no NTRIP for more than 30s from ");
+                    if (Set.DataTransVia < 5) { Serial.println("USB"); }
                     else
-                        if (Set.DataTransVia >= 10) { Serial.println("Ethernet"); }
+                        if (Set.DataTransVia < 10) { Serial.println("WiFi"); }
+                        else
+                            if (Set.DataTransVia >= 10) { Serial.println("Ethernet"); }
+                }
             }
         }
     }
-#endif
-
 }
-
-
 
 
 //-------------------------------------------------------------------------------------------------

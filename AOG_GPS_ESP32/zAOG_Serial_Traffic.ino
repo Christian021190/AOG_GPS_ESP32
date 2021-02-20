@@ -209,7 +209,7 @@ void getUBX() {
 			{
 				if (UBXDigit1 == 7) {//lenght
 					UBXLenght1 = UBXPVT1[nextUBXcount1].len + 8;//+2xheader,2xclass,2xlenght,2xchecksum
-					if (Set.CMPS14_present == true) { CMPS14GetNewData = true; }
+					
 					//if (debugmode) { Serial.print("UBXLenght1: "); Serial.println(UBXLenght1); }
 				}
 				else
@@ -243,7 +243,7 @@ void getUBX() {
 								Serial.print(UBXRelPosNED[UBXRingCount2].relPosLength); Serial.print(",");
 								Serial.print(UBXRelPosNED[UBXRingCount2].flags); Serial.print(",");
 							}
-
+							if (Set.CMPS14_present == true) { CMPS14GetNewData = true; }//get new IMU data if new GPS is there
 							UBXRingCount1 = nextUBXcount1;
 							UBXPVTTime = millis();//debug only
 							UBXLenght1 = 100;
